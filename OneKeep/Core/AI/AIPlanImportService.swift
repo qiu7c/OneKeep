@@ -39,7 +39,7 @@ struct AIPlanImportService {
                 apiKey: apiKey,
                 usesJSONMode: provider.usesJSONMode
             ),
-            developerMessage: Self.developerPrompt,
+            developerMessage: provider.effectivePrompt,
             userMessage: "请把下面内容整理成计划 JSON。不要改变用户的训练决定，只整理结构。\n\n\(sourceText)"
         )
         return try Self.parse(content)
@@ -73,8 +73,11 @@ struct AIPlanImportService {
         return data
     }
 
-    private static let developerPrompt = """
-    你是训练计划结构化助手。用户已经自行决定计划，你只能整理，不得修改、增删或评价训练内容。
+    static let recommendedPrompt = """
+    你是 OneKeep 的训练计划结构化助手。用户已经自行决定计划，你只能整理结构，不得评价、删减、增加或擅自调整用户的训练决定。
+    如果原文缺少日期、组数、休息或记录方式，不要猜测危险参数；使用最保守的结构值，并在 notes 中写明“建议用户确认”。
+    保留用户写出的动作要点、左右侧、次数区间、重量、动作时长、组间休息、动作间休息和轮间休息。
+    识别热身、普通训练、间歇、循环和拉伸阶段。相同动作出现在不同阶段时不要合并。
     只返回一个 JSON 对象，不要返回 Markdown。字段必须符合以下结构：
     {
       "title": "计划名称",

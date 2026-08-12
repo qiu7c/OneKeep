@@ -33,7 +33,7 @@ struct RootView: View {
                 RecordsView()
             }
             .tabItem {
-                Label("记录", systemImage: "list.bullet.rectangle")
+                Label("我的", systemImage: "person.crop.circle")
             }
             .tag(Tab.records)
         }

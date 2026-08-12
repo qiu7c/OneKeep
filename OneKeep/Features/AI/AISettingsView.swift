@@ -5,6 +5,7 @@ struct AISettingsView: View {
 
     @State private var provider = AIProviderPreferences.load() ?? AIProviderConfiguration()
     @State private var apiKey = ""
+    @State private var prompt = ""
     @State private var errorMessage: String?
     @State private var hasLoadedKey = false
 
@@ -25,6 +26,20 @@ struct AISettingsView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 Toggle("请求 JSON 模式", isOn: $provider.usesJSONMode)
+            }
+
+            Section("整理提示词") {
+                TextEditor(text: $prompt)
+                    .frame(minHeight: 260)
+                    .font(.footnote.monospaced())
+
+                Button("恢复推荐提示词") {
+                    prompt = AIPlanImportService.recommendedPrompt
+                }
+
+                Text("推荐先使用内置版本。可以补充自己的命名习惯或默认值，但建议保留 JSON 结构和“不得擅自修改计划”的约束。")
+                    .font(.footnote)
+                    .foregroundStyle(OKColor.secondaryText)
             }
 
             Section {
@@ -61,6 +76,7 @@ struct AISettingsView: View {
         hasLoadedKey = true
         do {
             apiKey = try keyStore.read(providerID: provider.id) ?? ""
+            prompt = provider.effectivePrompt
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -76,6 +92,11 @@ struct AISettingsView: View {
                 throw PresentedValidationError(message: "API Key 不能为空")
             }
 
+            let normalizedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !normalizedPrompt.isEmpty else {
+                throw PresentedValidationError(message: "整理提示词不能为空")
+            }
+            provider.customPrompt = normalizedPrompt == AIPlanImportService.recommendedPrompt ? nil : normalizedPrompt
             try AIProviderPreferences.save(provider)
             try keyStore.save(apiKey, providerID: provider.id)
             dismiss()

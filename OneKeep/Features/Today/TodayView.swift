@@ -1,7 +1,15 @@
+import CoreData
 import SwiftUI
 
 struct TodayView: View {
     @EnvironmentObject private var planLibrary: PlanLibraryStore
+    @FetchRequest private var sessionObjects: FetchedResults<NSManagedObject>
+
+    init() {
+        let request = NSFetchRequest<NSManagedObject>(entityName: "WorkoutSessionEntity")
+        request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
+        _sessionObjects = FetchRequest(fetchRequest: request, animation: .default)
+    }
 
     private var todayItem: (plan: TrainingPlan, day: TrainingDay)? {
         ScheduleResolver.trainingDays(in: planLibrary.plans, on: .now).first
@@ -18,14 +26,6 @@ struct TodayView: View {
         }
         .background(OKColor.background)
         .navigationTitle("今日")
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: {}) {
-                    Image(systemName: "plus")
-                }
-                .accessibilityLabel("快速新增")
-            }
-        }
     }
 
     private var header: some View {
@@ -89,19 +89,43 @@ struct TodayView: View {
                 Text("本周")
                     .font(.headline)
                 Spacer()
-                Text("2 / 5")
+                Text("\(completedThisWeek) / \(scheduledThisWeek)")
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(OKColor.secondaryText)
             }
 
-            ProgressView(value: 2, total: 5)
+            ProgressView(value: Double(completedThisWeek), total: Double(max(1, scheduledThisWeek)))
                 .tint(OKColor.accent)
 
-            Text("完成记录将在这里汇总")
+            Text(scheduledThisWeek == 0 ? "本周暂无计划安排" : "仅统计已完成并保存的训练")
                 .font(.footnote)
                 .foregroundStyle(OKColor.secondaryText)
         }
         .okCard()
+    }
+
+    private var weekInterval: DateInterval? {
+        Calendar.current.dateInterval(of: .weekOfYear, for: .now)
+    }
+
+    private var scheduledThisWeek: Int {
+        guard let interval = weekInterval else { return 0 }
+        var date = interval.start
+        var count = 0
+        while date < interval.end {
+            count += ScheduleResolver.trainingDays(in: planLibrary.plans, on: date).count
+            date = Calendar.current.date(byAdding: .day, value: 1, to: date) ?? interval.end
+        }
+        return count
+    }
+
+    private var completedThisWeek: Int {
+        guard let interval = weekInterval else { return 0 }
+        return sessionObjects.filter { session in
+            guard (session.value(forKey: "status") as? String) == WorkoutSessionRepository.Status.completed.rawValue,
+                  let date = session.value(forKey: "startedAt") as? Date else { return false }
+            return interval.contains(date)
+        }.count
     }
 }
 
@@ -110,4 +134,5 @@ struct TodayView: View {
         TodayView()
     }
     .environmentObject(PlanLibraryStore(repository: InMemoryPlanRepository(plans: [.preview])))
+    .environment(\.managedObjectContext, PersistenceController(inMemory: true).container.viewContext)
 }

@@ -131,7 +131,9 @@ struct PlansView: View {
             Text("导入计划")
                 .font(.headline)
 
-            importRow(title: "粘贴文本", detail: "整理已有训练内容", icon: "doc.on.clipboard") {}
+            importRow(title: "粘贴文本", detail: "粘贴后由 AI 整理并预览", icon: "doc.on.clipboard") {
+                showsAIImporter = true
+            }
             importRow(title: "使用 AI", detail: "连接兼容接口并预览", icon: "sparkles") {
                 showsAIImporter = true
             }

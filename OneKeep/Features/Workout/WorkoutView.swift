@@ -112,7 +112,27 @@ struct WorkoutView: View {
 
             Spacer()
 
-            Button(action: {}) {
+            Menu {
+                Button {
+                    timer.reset()
+                    timerPurpose = .exercise
+                    pendingRestSeconds = 0
+                } label: {
+                    Label("重置当前计时", systemImage: "arrow.counterclockwise")
+                }
+                Button {
+                    completeStep()
+                } label: {
+                    Label("跳过当前组", systemImage: "forward.end")
+                }
+                .disabled(currentStep == nil || timerPurpose == .rest)
+                Button(role: .destructive) {
+                    timer.reset()
+                    dismiss()
+                } label: {
+                    Label("退出训练", systemImage: "xmark")
+                }
+            } label: {
                 Image(systemName: "ellipsis")
                     .frame(width: 44, height: 44)
             }
