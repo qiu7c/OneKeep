@@ -1,5 +1,17 @@
 import AVFoundation
 
+enum WorkoutAudioSession {
+    static func activate() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .moviePlayback)
+            try session.setActive(true)
+        } catch {
+            // Media and speech can continue with the current route when activation fails.
+        }
+    }
+}
+
 @MainActor
 final class WorkoutVoiceCoach {
     static let shared = WorkoutVoiceCoach()
@@ -14,13 +26,7 @@ final class WorkoutVoiceCoach {
             synthesizer.stopSpeaking(at: .immediate)
         }
 
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
-            try session.setActive(true)
-        } catch {
-            // Speech synthesis can still succeed with the current audio session.
-        }
+        WorkoutAudioSession.activate()
 
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = AVSpeechSynthesisVoice(language: "zh-CN")

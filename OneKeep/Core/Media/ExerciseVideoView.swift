@@ -174,7 +174,7 @@ private final class BilibiliPlayerModel: ObservableObject {
         player.isMuted = state == .previewMuted || state == .pausedMuted
         switch state {
         case .playing, .previewMuted:
-            VideoAudioSession.activate()
+            WorkoutAudioSession.activate()
             player.play()
         case .paused, .pausedMuted:
             player.pause()
@@ -288,18 +288,6 @@ private struct NativePlayerController: UIViewControllerRepresentable {
     }
 }
 
-private enum VideoAudioSession {
-    static func activate() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .moviePlayback)
-            try session.setActive(true)
-        } catch {
-            // AVPlayer can still play when another app temporarily owns the audio route.
-        }
-    }
-}
-
 private enum VideoPresentation {
     static let fallbackAspectRatio: CGFloat = 16 / 9
 
@@ -402,7 +390,7 @@ private struct NativeVideoPlayer: View {
         player.isMuted = playbackState == .previewMuted || playbackState == .pausedMuted
         switch playbackState {
         case .playing, .previewMuted:
-            VideoAudioSession.activate()
+            WorkoutAudioSession.activate()
             player.play()
         case .paused, .pausedMuted:
             player.pause()
