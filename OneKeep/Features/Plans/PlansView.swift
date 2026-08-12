@@ -86,6 +86,18 @@ struct PlansView: View {
                 Spacer()
 
                 Menu {
+                    NavigationLink {
+                        PlanEditorView(plan: plan)
+                    } label: {
+                        Label("编辑计划", systemImage: "pencil")
+                    }
+
+                    Button {
+                        planLibrary.save(plan.duplicated())
+                    } label: {
+                        Label("复制计划", systemImage: "doc.on.doc")
+                    }
+
                     Button {
                         export(plan)
                     } label: {
@@ -116,6 +128,18 @@ struct PlansView: View {
                 }
                 .font(.subheadline)
             }
+
+            NavigationLink {
+                PlanEditorView(plan: plan)
+            } label: {
+                HStack {
+                    Label("查看全部并编辑", systemImage: "list.bullet")
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                }
+                .font(.subheadline.weight(.semibold))
+            }
         }
         .okCard()
     }
@@ -132,6 +156,17 @@ struct PlansView: View {
                     title: "AI 计划助手",
                     detail: "粘贴计划、多轮讨论、改善建议与导入",
                     icon: "bubble.left.and.bubble.right"
+                )
+            }
+            .buttonStyle(.plain)
+            Divider().padding(.leading, 42)
+            NavigationLink {
+                ExerciseLibraryView()
+            } label: {
+                importLabel(
+                    title: "动作库",
+                    detail: "查看动作步骤、常见错误和视频链接",
+                    icon: "figure.mixed.cardio"
                 )
             }
             .buttonStyle(.plain)

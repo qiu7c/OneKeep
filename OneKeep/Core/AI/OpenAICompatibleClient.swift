@@ -24,6 +24,16 @@ struct OpenAICompatibleClient {
         let latencyMilliseconds: Int
     }
 
+    struct AvailableModel: Decodable, Identifiable, Hashable {
+        let id: String
+        let ownedBy: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case ownedBy = "owned_by"
+        }
+    }
+
     enum ClientError: LocalizedError, Equatable {
         case invalidBaseURL
         case invalidModel
@@ -135,6 +145,37 @@ struct OpenAICompatibleClient {
         )
     }
 
+    func listModels(baseURL: String, apiKey: String) async throws -> [AvailableModel] {
+        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw ClientError.requestFailed(status: 0, message: "API Key 不能为空")
+        }
+        var request = URLRequest(url: try Self.modelsEndpoint(baseURL: baseURL))
+        request.httpMethod = "GET"
+        request.timeoutInterval = 25
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: request)
+        } catch let error as URLError where error.code == .timedOut {
+            throw ClientError.timedOut
+        } catch let error as URLError {
+            throw ClientError.network(error.localizedDescription)
+        }
+        guard let httpResponse = response as? HTTPURLResponse else { throw ClientError.invalidResponse }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let envelope = try? JSONDecoder().decode(APIErrorEnvelope.self, from: data)
+            let fallback = String(data: data.prefix(2_000), encoding: .utf8) ?? "未知错误"
+            throw ClientError.requestFailed(status: httpResponse.statusCode, message: envelope?.error.message ?? fallback)
+        }
+        guard let response = try? JSONDecoder().decode(ModelListResponse.self, from: data) else {
+            throw ClientError.invalidResponse
+        }
+        return response.data.sorted { $0.id.localizedStandardCompare($1.id) == .orderedAscending }
+    }
+
     private func validate(_ configuration: Configuration) throws {
         guard !configuration.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ClientError.invalidModel }
         guard !configuration.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -154,6 +195,21 @@ struct OpenAICompatibleClient {
             path = path.isEmpty ? "chat/completions" : path + "/chat/completions"
         }
         components.path = "/" + path
+        guard let url = components.url else { throw ClientError.invalidBaseURL }
+        return url
+    }
+
+    static func modelsEndpoint(baseURL: String) throws -> URL {
+        let chatURL = try endpoint(baseURL: baseURL)
+        guard var components = URLComponents(url: chatURL, resolvingAgainstBaseURL: false) else {
+            throw ClientError.invalidBaseURL
+        }
+        var parts = components.path.split(separator: "/").map(String.init)
+        if parts.suffix(2).elementsEqual(["chat", "completions"]) {
+            parts.removeLast(2)
+        }
+        parts.append("models")
+        components.path = "/" + parts.joined(separator: "/")
         guard let url = components.url else { throw ClientError.invalidBaseURL }
         return url
     }
@@ -187,4 +243,8 @@ private struct ChatResponse: Decodable {
 private struct APIErrorEnvelope: Decodable {
     struct APIError: Decodable { let message: String }
     let error: APIError
+}
+
+private struct ModelListResponse: Decodable {
+    let data: [OpenAICompatibleClient.AvailableModel]
 }

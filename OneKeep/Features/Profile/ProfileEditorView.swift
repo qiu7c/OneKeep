@@ -7,8 +7,9 @@ struct ProfileEditorView: View {
     @State private var hasBirthday = UserProfilePreferences.load().birthday != nil
     @State private var birthday = UserProfilePreferences.load().birthday ?? Calendar.current.date(byAdding: .year, value: -18, to: .now) ?? .now
     @State private var height = UserProfilePreferences.load().heightCentimeters.map { String($0) } ?? ""
-    @State private var weight = UserProfilePreferences.load().weightKilograms.map { String($0) } ?? ""
+    @State private var weight = UserProfilePreferences.load().weightKilograms.map(WeightUnit.preferred.string(fromKilograms:)) ?? ""
     @State private var errorMessage: String?
+    private let weightUnit = WeightUnit.preferred
 
     var body: some View {
         Form {
@@ -37,7 +38,7 @@ struct ProfileEditorView: View {
                 HStack {
                     TextField("体重", text: $weight)
                         .keyboardType(.decimalPad)
-                    Text("kg")
+                    Text(weightUnit.symbol)
                         .foregroundStyle(OKColor.secondaryText)
                 }
             }
@@ -77,14 +78,18 @@ struct ProfileEditorView: View {
 
     private func save() {
         let parsedHeight = Double(height)
-        let parsedWeight = Double(weight)
+        let parsedWeight = weight.isEmpty ? nil : weightUnit.parseKilograms(weight)
 
         if let parsedHeight, !(50...300).contains(parsedHeight) {
             errorMessage = "身高需要在 50～300 cm 之间"
             return
         }
+        if !weight.isEmpty, parsedWeight == nil {
+            errorMessage = "请输入有效体重（\(weightUnit.symbol)）"
+            return
+        }
         if let parsedWeight, !(10...500).contains(parsedWeight) {
-            errorMessage = "体重需要在 10～500 kg 之间"
+            errorMessage = "体重需要在 \(weightUnit.formatted(kilograms: 10))～\(weightUnit.formatted(kilograms: 500)) 之间"
             return
         }
 
@@ -100,4 +105,3 @@ struct ProfileEditorView: View {
         }
     }
 }
-

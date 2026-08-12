@@ -8,6 +8,16 @@ struct WorkoutView: View {
         case rest
     }
 
+    private enum WorkoutInputError: LocalizedError {
+        case invalidWeight(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .invalidWeight(let symbol): return "请输入有效的重量（\(symbol)）"
+            }
+        }
+    }
+
     let trainingDay: TrainingDay
     let steps: [WorkoutStep]
 
@@ -23,11 +33,18 @@ struct WorkoutView: View {
     @State private var hasStartedSession = false
     @State private var actualRepetitions = ""
     @State private var actualWeight = ""
+    @State private var lastUsedWeight: Double?
     @State private var persistenceError: String?
+    @State private var showsCancelConfirmation = false
+    @State private var preferences = WorkoutPreferencesStore.load()
 
-    init(trainingDay: TrainingDay) {
+    init(trainingDay: TrainingDay, resumeSessionID: UUID? = nil, completedStepCount: Int = 0) {
         self.trainingDay = trainingDay
         self.steps = WorkoutExecutionPlan.makeSteps(from: trainingDay)
+        _sessionID = State(initialValue: resumeSessionID ?? UUID())
+        _hasStartedSession = State(initialValue: resumeSessionID != nil)
+        let count = WorkoutExecutionPlan.makeSteps(from: trainingDay).count
+        _stepIndex = State(initialValue: count == 0 ? 0 : min(max(0, completedStepCount), count - 1))
     }
 
     private var currentStep: WorkoutStep? {
@@ -53,15 +70,29 @@ struct WorkoutView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .tabBar)
         .onAppear {
+            preferences = WorkoutPreferencesStore.load()
+            if preferences.timerNotifications {
+                WorkoutNotificationService.requestAuthorizationIfNeeded()
+            }
             startSessionIfNeeded()
+            restoreRuntimeIfAvailable()
             prepareActualValues()
         }
         .onChange(of: stepIndex) { _ in
             prepareActualValues()
+            saveRuntime()
+        }
+        .onChange(of: timer.remainingSeconds) { _ in
+            saveRuntime()
         }
         .onChange(of: timer.phase) { phase in
-            guard phase == .finished, timerPurpose == .rest else { return }
-            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            saveRuntime()
+            guard phase == .finished else { return }
+            if preferences.hapticFeedback {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
+            WorkoutNotificationService.cancel()
+            guard timerPurpose == .rest else { return }
             DispatchQueue.main.async {
                 timer.reset()
                 timerPurpose = .exercise
@@ -83,26 +114,41 @@ struct WorkoutView: View {
         } message: {
             Text(persistenceError ?? "未知错误")
         }
+        .confirmationDialog("放弃本次训练？", isPresented: $showsCancelConfirmation, titleVisibility: .visible) {
+            Button("放弃并结束记录", role: .destructive) {
+                cancelWorkout()
+            }
+            Button("继续训练", role: .cancel) {}
+        } message: {
+            Text("已完成的组仍会保留，但本次训练不会计入完成记录。")
+        }
     }
 
     @ViewBuilder
     private var exerciseVideo: some View {
-        if let url = currentStep?.exercise.videoURL,
+        if let url = currentVideoURL,
            let source = VideoSource(urlString: url.absoluteString) {
-            ExerciseVideoView(source: source)
-                .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
+            VStack(alignment: .trailing, spacing: 8) {
+                ExerciseVideoView(source: source)
+                Link(destination: url) {
+                    Label("浏览器打开", systemImage: "safari")
+                        .font(.caption.weight(.semibold))
+                }
+            }
+            .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
         }
     }
 
     private var header: some View {
         HStack {
             Button {
+                saveRuntime()
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
                     .frame(width: 44, height: 44)
             }
-            .accessibilityLabel("退出训练")
+            .accessibilityLabel("暂时退出训练")
 
             Spacer()
 
@@ -114,6 +160,7 @@ struct WorkoutView: View {
 
             Menu {
                 Button {
+                    WorkoutNotificationService.cancel()
                     timer.reset()
                     timerPurpose = .exercise
                     pendingRestSeconds = 0
@@ -126,11 +173,16 @@ struct WorkoutView: View {
                     Label("跳过当前组", systemImage: "forward.end")
                 }
                 .disabled(currentStep == nil || timerPurpose == .rest)
-                Button(role: .destructive) {
-                    timer.reset()
+                Button {
+                    saveRuntime()
                     dismiss()
                 } label: {
-                    Label("退出训练", systemImage: "xmark")
+                    Label("暂时退出", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+                Button(role: .destructive) {
+                    showsCancelConfirmation = true
+                } label: {
+                    Label("放弃本次训练", systemImage: "trash")
                 }
             } label: {
                 Image(systemName: "ellipsis")
@@ -164,7 +216,7 @@ struct WorkoutView: View {
                         Label("\(repetitions) 次", systemImage: "repeat")
                     }
                     if let weight = step.exercise.plannedWeightKilograms {
-                        Label(weight.formatted() + " kg", systemImage: "scalemass")
+                        Label(preferences.weightUnit.formatted(kilograms: weight), systemImage: "scalemass")
                     }
                 }
                 .font(.subheadline)
@@ -174,6 +226,23 @@ struct WorkoutView: View {
                     Text(notes)
                         .font(.subheadline)
                 }
+
+                if let libraryItem = ExerciseLibraryCatalog.item(
+                    id: step.exercise.libraryID,
+                    fallbackName: step.exercise.name
+                ) {
+                    Divider()
+                    Label("动作指导", systemImage: "list.number")
+                        .font(.subheadline.weight(.semibold))
+                    ForEach(Array(libraryItem.instructions.prefix(4).enumerated()), id: \.offset) { index, instruction in
+                        HStack(alignment: .top, spacing: 8) {
+                            Text("\(index + 1)")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(OKColor.secondaryText)
+                            Text(instruction).font(.subheadline)
+                        }
+                    }
+                }
             } else {
                 Text("没有可执行动作")
                     .font(.title3.bold())
@@ -181,6 +250,15 @@ struct WorkoutView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .okCard()
+    }
+
+    private var currentVideoURL: URL? {
+        guard let exercise = currentStep?.exercise else { return nil }
+        if let item = ExerciseLibraryCatalog.item(id: exercise.libraryID, fallbackName: exercise.name) {
+            if let customURL = exercise.videoURL, customURL != item.videoURL { return customURL }
+            return ExerciseMediaResolver.playableURL(for: item)
+        }
+        return exercise.videoURL
     }
 
     private var timerPanel: some View {
@@ -237,7 +315,17 @@ struct WorkoutView: View {
                     if step.exercise.trackingMode == .repetitions {
                         valueField(title: "实际次数", text: $actualRepetitions, suffix: "次")
                     }
-                    valueField(title: "实际重量", text: $actualWeight, suffix: "kg")
+                    valueField(title: "实际重量", text: $actualWeight, suffix: preferences.weightUnit.symbol)
+                }
+
+                if let lastUsedWeight {
+                    Button {
+                        actualWeight = preferences.weightUnit.string(fromKilograms: lastUsedWeight)
+                    } label: {
+                        Label("使用上次重量 \(preferences.weightUnit.formatted(kilograms: lastUsedWeight))", systemImage: "clock.arrow.circlepath")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .okCard()
@@ -316,8 +404,15 @@ struct WorkoutView: View {
         switch timer.phase {
         case .running:
             timer.pause()
+            WorkoutNotificationService.cancel()
         case .paused:
             timer.resume()
+            if timer.mode == .countdown {
+                scheduleNotification(
+                    after: timer.remainingSeconds,
+                    title: timerPurpose == .rest ? "休息结束" : "动作计时结束"
+                )
+            }
         case .idle, .finished:
             startCurrentTimer()
         }
@@ -326,12 +421,15 @@ struct WorkoutView: View {
     private func startCurrentTimer() {
         if timerPurpose == .rest {
             timer.start(seconds: pendingRestSeconds)
+            scheduleNotification(after: pendingRestSeconds, title: "休息结束")
             return
         }
 
         switch currentStep?.exercise.trackingMode {
         case .countdown:
-            timer.start(seconds: currentStep?.exercise.durationSeconds ?? 0)
+            let seconds = currentStep?.exercise.durationSeconds ?? 0
+            timer.start(seconds: seconds)
+            scheduleNotification(after: seconds, title: "动作计时结束")
         case .stopwatch, .repetitions, .none:
             timer.startStopwatch()
         }
@@ -345,13 +443,18 @@ struct WorkoutView: View {
             persistenceError = error.localizedDescription
             return
         }
-        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        if preferences.hapticFeedback {
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+        }
 
         guard stepIndex + 1 < steps.count else {
+            hasStartedSession = false
             timer.reset()
             do {
                 try WorkoutSessionRepository(context: managedObjectContext).finish(id: sessionID)
+                WorkoutRuntimeStore.clear(sessionID: sessionID)
             } catch {
+                hasStartedSession = true
                 persistenceError = error.localizedDescription
                 return
             }
@@ -366,8 +469,15 @@ struct WorkoutView: View {
         if step.restAfterSeconds > 0 {
             timerPurpose = .rest
             pendingRestSeconds = step.restAfterSeconds
-            timer.start(seconds: step.restAfterSeconds)
+            if preferences.autoStartRest {
+                timer.start(seconds: step.restAfterSeconds)
+                scheduleNotification(after: step.restAfterSeconds, title: "休息结束")
+            } else {
+                WorkoutNotificationService.cancel()
+                timer.reset()
+            }
         } else {
+            WorkoutNotificationService.cancel()
             timer.reset()
             timerPurpose = .exercise
         }
@@ -382,6 +492,7 @@ struct WorkoutView: View {
                 trainingDay: trainingDay
             )
         } catch {
+            hasStartedSession = false
             persistenceError = error.localizedDescription
         }
     }
@@ -397,11 +508,78 @@ struct WorkoutView: View {
         } else {
             actualRepetitions = ""
         }
-        actualWeight = exercise.plannedWeightKilograms.map { String($0) } ?? ""
+        actualWeight = exercise.plannedWeightKilograms.map(preferences.weightUnit.string(fromKilograms:)) ?? ""
+        lastUsedWeight = fetchLastUsedWeight(for: exercise)
+    }
+
+    private func fetchLastUsedWeight(for exercise: PlannedExercise) -> Double? {
+        let request = NSFetchRequest<NSManagedObject>(entityName: "PerformedSetEntity")
+        request.fetchLimit = 1
+        request.sortDescriptors = [NSSortDescriptor(key: "completedAt", ascending: false)]
+        request.predicate = NSPredicate(
+            format: "exerciseName == %@ AND sessionID != %@ AND weightKilograms != nil",
+            exercise.name,
+            sessionID as NSUUID
+        )
+        return (try? managedObjectContext.fetch(request))?.first?.value(forKey: "weightKilograms") as? Double
+    }
+
+    private func cancelWorkout() {
+        WorkoutNotificationService.cancel()
+        hasStartedSession = false
+        timer.reset()
+        do {
+            try WorkoutSessionRepository(context: managedObjectContext).cancel(id: sessionID)
+            WorkoutRuntimeStore.clear(sessionID: sessionID)
+            dismiss()
+        } catch {
+            hasStartedSession = true
+            persistenceError = error.localizedDescription
+        }
+    }
+
+    private func scheduleNotification(after seconds: Int, title: String) {
+        guard preferences.timerNotifications else { return }
+        WorkoutNotificationService.scheduleTimerFinished(after: seconds, title: title)
+    }
+
+    private func saveRuntime() {
+        guard hasStartedSession, !showsCompletion else { return }
+        WorkoutRuntimeStore.save(
+            WorkoutRuntimeSnapshot(
+                stepIndex: stepIndex,
+                timerPurpose: timerPurpose == .rest ? "rest" : "exercise",
+                pendingRestSeconds: pendingRestSeconds,
+                timer: timer.snapshot()
+            ),
+            sessionID: sessionID
+        )
+    }
+
+    private func restoreRuntimeIfAvailable() {
+        guard let snapshot = WorkoutRuntimeStore.load(sessionID: sessionID) else { return }
+        stepIndex = min(max(0, snapshot.stepIndex), max(0, steps.count - 1))
+        timerPurpose = snapshot.timerPurpose == "rest" ? .rest : .exercise
+        pendingRestSeconds = max(0, snapshot.pendingRestSeconds)
+        timer.restore(snapshot.timer)
+        if timer.phase == .running, timer.mode == .countdown {
+            scheduleNotification(
+                after: timer.remainingSeconds,
+                title: timerPurpose == .rest ? "休息结束" : "动作计时结束"
+            )
+        }
     }
 
     private func recordCurrentSet(_ step: WorkoutStep) throws {
         let duration: Int?
+        let weightKilograms: Double?
+        if actualWeight.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            weightKilograms = nil
+        } else if let value = preferences.weightUnit.parseKilograms(actualWeight) {
+            weightKilograms = value
+        } else {
+            throw WorkoutInputError.invalidWeight(preferences.weightUnit.symbol)
+        }
         switch step.exercise.trackingMode {
         case .countdown:
             if timer.mode == .countdown, timer.phase != .idle {
@@ -418,7 +596,7 @@ struct WorkoutView: View {
             stepIndex: stepIndex,
             step: step,
             repetitions: Int(actualRepetitions),
-            weightKilograms: Double(actualWeight),
+            weightKilograms: weightKilograms,
             durationSeconds: duration
         )
     }

@@ -137,6 +137,9 @@ struct PlannedExercise: Identifiable, Codable, Hashable {
     var notes: String?
     var videoURL: URL?
     var trackingMode: TrackingMode
+    var libraryID: String?
+    var libraryMatchCandidates: [String]?
+    var libraryMatchConfidence: Double?
 
     init(
         id: UUID = UUID(),
@@ -148,7 +151,10 @@ struct PlannedExercise: Identifiable, Codable, Hashable {
         restSeconds: Int = 60,
         notes: String? = nil,
         videoURL: URL? = nil,
-        trackingMode: TrackingMode = .repetitions
+        trackingMode: TrackingMode = .repetitions,
+        libraryID: String? = nil,
+        libraryMatchCandidates: [String]? = nil,
+        libraryMatchConfidence: Double? = nil
     ) {
         self.id = id
         self.name = name
@@ -160,10 +166,52 @@ struct PlannedExercise: Identifiable, Codable, Hashable {
         self.notes = notes
         self.videoURL = videoURL
         self.trackingMode = trackingMode
+        self.libraryID = libraryID
+        self.libraryMatchCandidates = libraryMatchCandidates
+        self.libraryMatchConfidence = libraryMatchConfidence
     }
 }
 
 extension TrainingPlan {
+    func duplicated(titleSuffix: String = " 副本") -> TrainingPlan {
+        TrainingPlan(
+            title: title + titleSuffix,
+            startDate: startDate,
+            endDate: endDate,
+            days: days.map { day in
+                TrainingDay(
+                    title: day.title,
+                    recurrence: day.recurrence,
+                    blocks: day.blocks.map { block in
+                        WorkoutBlock(
+                            title: block.title,
+                            kind: block.kind,
+                            rounds: block.rounds,
+                            restBetweenExercisesSeconds: block.restBetweenExercisesSeconds,
+                            restBetweenRoundsSeconds: block.restBetweenRoundsSeconds,
+                            exercises: block.exercises.map { exercise in
+                                PlannedExercise(
+                                    name: exercise.name,
+                                    sets: exercise.sets,
+                                    repetitions: exercise.repetitions,
+                                    plannedWeightKilograms: exercise.plannedWeightKilograms,
+                                    durationSeconds: exercise.durationSeconds,
+                                    restSeconds: exercise.restSeconds,
+                                    notes: exercise.notes,
+                                    videoURL: exercise.videoURL,
+                                    trackingMode: exercise.trackingMode,
+                                    libraryID: exercise.libraryID,
+                                    libraryMatchCandidates: exercise.libraryMatchCandidates,
+                                    libraryMatchConfidence: exercise.libraryMatchConfidence
+                                )
+                            }
+                        )
+                    }
+                )
+            }
+        )
+    }
+
     static let preview = TrainingPlan(
         title: "本周训练",
         startDate: .now,

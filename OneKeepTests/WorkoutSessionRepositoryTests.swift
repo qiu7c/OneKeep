@@ -32,4 +32,29 @@ final class WorkoutSessionRepositoryTests: XCTestCase {
         XCTAssertEqual(performedSet.value(forKey: "repetitions") as? Int64, 10)
         XCTAssertEqual(performedSet.value(forKey: "weightKilograms") as? Double, 20)
     }
+
+    func testCancellingSessionKeepsSetsButDoesNotMarkCompleted() throws {
+        let persistence = PersistenceController(inMemory: true)
+        let context = persistence.container.viewContext
+        let repository = WorkoutSessionRepository(context: context)
+        let sessionID = UUID()
+        let day = TrainingPlan.preview.days[0]
+        let step = try XCTUnwrap(WorkoutExecutionPlan.makeSteps(from: day).first)
+
+        try repository.start(id: sessionID, trainingDay: day)
+        try repository.recordSet(
+            sessionID: sessionID,
+            stepIndex: 0,
+            step: step,
+            repetitions: 8,
+            weightKilograms: 10,
+            durationSeconds: nil
+        )
+        try repository.cancel(id: sessionID)
+
+        let session = try XCTUnwrap(context.fetch(NSFetchRequest<NSManagedObject>(entityName: "WorkoutSessionEntity")).first)
+        let sets = try context.fetch(NSFetchRequest<NSManagedObject>(entityName: "PerformedSetEntity"))
+        XCTAssertEqual(session.value(forKey: "status") as? String, "cancelled")
+        XCTAssertEqual(sets.count, 1)
+    }
 }

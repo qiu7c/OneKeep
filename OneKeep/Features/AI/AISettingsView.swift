@@ -5,39 +5,74 @@ struct AISettingsView: View {
 
     @State private var provider = AIProviderPreferences.load() ?? AIProviderConfiguration()
     @State private var apiKey = ""
-    @State private var prompt = ""
     @State private var errorMessage: String?
     @State private var hasLoadedKey = false
     @State private var isTesting = false
     @State private var connectionMessage: String?
+    @State private var isLoadingModels = false
+    @State private var availableModels: [OpenAICompatibleClient.AvailableModel] = []
 
     private let keyStore = KeychainAPIKeyStore()
 
     var body: some View {
         Form {
-            Section("服务") {
-                Button {
-                    provider.name = "DeepSeek"
-                    provider.baseURL = "https://api.deepseek.com"
-                    provider.model = "deepseek-chat"
-                    provider.usesJSONMode = true
-                    connectionMessage = nil
-                } label: {
-                    Label("使用 DeepSeek 推荐配置", systemImage: "wand.and.stars")
+            Section("服务预设") {
+                ForEach(AIProviderPreset.allCases) { preset in
+                    Button { apply(preset) } label: {
+                        HStack {
+                            Image(systemName: presetIcon(preset)).frame(width: 28)
+                            Text(preset.title).foregroundStyle(.primary)
+                            Spacer()
+                            if AIProviderPreset.matching(provider) == preset {
+                                Image(systemName: "checkmark").foregroundStyle(OKColor.accent)
+                            }
+                        }
+                    }
                 }
+                Text("切换预设会自动填写对应 Base URL，并读取该服务单独保存在钥匙串中的 API Key。")
+                    .font(.footnote)
+                    .foregroundStyle(OKColor.secondaryText)
+            }
 
+            Section("服务") {
                 TextField("名称", text: $provider.name)
                 TextField("Base URL", text: $provider.baseURL)
                     .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                TextField("模型名称", text: $provider.model)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 SecureField("API Key", text: $apiKey)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 Toggle("请求 JSON 模式", isOn: $provider.usesJSONMode)
+
+                HStack {
+                    Text("模型")
+                    Spacer()
+                    Text(provider.model.isEmpty ? "未选择" : provider.model)
+                        .foregroundStyle(OKColor.secondaryText)
+                        .lineLimit(1)
+                }
+
+                if availableModels.isEmpty {
+                    TextField("手动填写模型名称", text: $provider.model)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } else {
+                    NavigationLink {
+                        AIModelSelectionView(models: availableModels, selection: $provider.model)
+                    } label: {
+                        Label("从 \(availableModels.count) 个可用模型中选择", systemImage: "list.bullet")
+                    }
+                }
+
+                Button(action: fetchModels) {
+                    HStack {
+                        if isLoadingModels { ProgressView().controlSize(.small) }
+                        Text(isLoadingModels ? "正在获取模型列表…" : "获取可用模型")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .disabled(isLoadingModels || isTesting)
 
                 Button(action: testConnection) {
                     HStack {
@@ -55,22 +90,8 @@ struct AISettingsView: View {
                 }
             }
 
-            Section("整理提示词") {
-                TextEditor(text: $prompt)
-                    .frame(minHeight: 260)
-                    .font(.footnote.monospaced())
-
-                Button("恢复推荐提示词") {
-                    prompt = AIPlanImportService.recommendedPrompt
-                }
-
-                Text("推荐先使用内置版本。可以补充自己的命名习惯或默认值，但建议保留 JSON 结构和“不得擅自修改计划”的约束。")
-                    .font(.footnote)
-                    .foregroundStyle(OKColor.secondaryText)
-            }
-
             Section {
-                Text("API Key 只保存在本机 Keychain，不会进入 Core Data、日志或备份文件。部分兼容服务不支持 JSON 模式，遇到请求错误时可以关闭。")
+                Text("系统提示词由 OneKeep 内部维护。API Key 只保存在本机 Keychain，不会进入 Core Data、日志或备份文件。部分兼容服务不支持 JSON 模式，遇到请求错误时可以关闭。")
                     .font(.footnote)
                     .foregroundStyle(OKColor.secondaryText)
             }
@@ -101,11 +122,45 @@ struct AISettingsView: View {
     private func loadKeyIfNeeded() {
         guard !hasLoadedKey else { return }
         hasLoadedKey = true
-        prompt = provider.effectivePrompt
         do {
             apiKey = try keyStore.read(providerID: provider.id) ?? ""
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func apply(_ preset: AIProviderPreset) {
+        let previousKey = apiKey
+        let wasSameService = AIProviderPreset.matching(provider) == preset
+        provider = preset.configuration
+        availableModels = []
+        connectionMessage = nil
+        errorMessage = nil
+        do {
+            apiKey = try keyStore.read(providerID: provider.id) ?? (wasSameService ? previousKey : "")
+        } catch {
+            apiKey = ""
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func fetchModels() {
+        errorMessage = nil
+        connectionMessage = nil
+        isLoadingModels = true
+        Task {
+            defer { isLoadingModels = false }
+            do {
+                let models = try await OpenAICompatibleClient().listModels(baseURL: provider.baseURL, apiKey: apiKey)
+                guard !models.isEmpty else { throw PresentedValidationError(message: "服务没有返回任何模型") }
+                availableModels = models
+                if !models.contains(where: { $0.id == provider.model }) {
+                    provider.model = models[0].id
+                }
+                connectionMessage = "已获取 \(models.count) 个可用模型"
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 
@@ -129,11 +184,6 @@ struct AISettingsView: View {
         do {
             _ = try validatedConfiguration()
 
-            let normalizedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !normalizedPrompt.isEmpty else {
-                throw PresentedValidationError(message: "整理提示词不能为空")
-            }
-            provider.customPrompt = normalizedPrompt == AIPlanImportService.recommendedPrompt ? nil : normalizedPrompt
             try AIProviderPreferences.save(provider)
             try keyStore.save(apiKey, providerID: provider.id)
             dismiss()
@@ -156,6 +206,54 @@ struct AISettingsView: View {
             apiKey: apiKey,
             usesJSONMode: provider.usesJSONMode
         )
+    }
+
+    private func presetIcon(_ preset: AIProviderPreset) -> String {
+        switch preset {
+        case .deepSeek: return "brain"
+        case .openAI: return "sparkles"
+        case .qwen: return "cloud"
+        case .gemini: return "diamond"
+        }
+    }
+}
+
+private struct AIModelSelectionView: View {
+    let models: [OpenAICompatibleClient.AvailableModel]
+    @Binding var selection: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var searchText = ""
+
+    var body: some View {
+        List(filteredModels) { model in
+            Button {
+                selection = model.id
+                dismiss()
+            } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(model.id).foregroundStyle(.primary)
+                        if let owner = model.ownedBy, !owner.isEmpty {
+                            Text(owner).font(.caption).foregroundStyle(OKColor.secondaryText)
+                        }
+                    }
+                    Spacer()
+                    if selection == model.id { Image(systemName: "checkmark").foregroundStyle(OKColor.accent) }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .scrollContentBackground(.hidden)
+        .background(OKColor.background)
+        .navigationTitle("选择模型")
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $searchText, prompt: "搜索模型 ID")
+    }
+
+    private var filteredModels: [OpenAICompatibleClient.AvailableModel] {
+        let value = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? models : models.filter { $0.id.localizedCaseInsensitiveContains(value) }
     }
 }
 

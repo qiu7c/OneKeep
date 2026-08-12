@@ -11,7 +11,7 @@ struct ExerciseVideoView: View {
             case .native(let url):
                 NativeVideoPlayer(url: url)
             case .web(let url):
-                EmbeddedWebVideo(url: url)
+                WebVideoPlayer(url: url)
             }
         }
         .aspectRatio(16 / 9, contentMode: .fit)
@@ -19,6 +19,42 @@ struct ExerciseVideoView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(OKColor.border, lineWidth: 0.5)
+        }
+    }
+}
+
+private struct WebVideoPlayer: View {
+    let url: URL
+    @State private var isLoading = true
+    @State private var errorMessage: String?
+    @State private var reloadID = UUID()
+
+    var body: some View {
+        ZStack {
+            EmbeddedWebVideo(url: url, isLoading: $isLoading, errorMessage: $errorMessage)
+                .id(reloadID)
+            if isLoading {
+                VStack(spacing: 8) {
+                    ProgressView()
+                    Text("正在加载视频…")
+                        .font(.caption)
+                        .foregroundStyle(OKColor.secondaryText)
+                }
+            }
+            if let errorMessage {
+                VStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.circle")
+                    Text(errorMessage).font(.caption).multilineTextAlignment(.center)
+                    Button("重新加载") {
+                        self.errorMessage = nil
+                        isLoading = true
+                        reloadID = UUID()
+                    }
+                    .font(.caption.weight(.semibold))
+                }
+                .padding(16)
+                .background(OKColor.surface)
+            }
         }
     }
 }
@@ -34,6 +70,10 @@ private struct NativeVideoPlayer: View {
 
     var body: some View {
         VideoPlayer(player: player)
+            .task(id: url) {
+                let playbackURL = await ExerciseVideoOfflineStore.shared.localURL(for: url) ?? url
+                player.replaceCurrentItem(with: AVPlayerItem(url: playbackURL))
+            }
             .onDisappear {
                 player.pause()
             }
@@ -42,9 +82,11 @@ private struct NativeVideoPlayer: View {
 
 private struct EmbeddedWebVideo: UIViewRepresentable {
     let url: URL
+    @Binding var isLoading: Bool
+    @Binding var errorMessage: String?
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(initialHost: url.host)
+        Coordinator(parent: self, initialHost: url.host)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -63,15 +105,37 @@ private struct EmbeddedWebVideo: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        context.coordinator.parent = self
         guard webView.url != url else { return }
         webView.load(URLRequest(url: url))
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
+        var parent: EmbeddedWebVideo
         private let initialHost: String?
 
-        init(initialHost: String?) {
+        init(parent: EmbeddedWebVideo, initialHost: String?) {
+            self.parent = parent
             self.initialHost = initialHost
+        }
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            parent.isLoading = true
+            parent.errorMessage = nil
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            parent.isLoading = false
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            parent.isLoading = false
+            parent.errorMessage = "视频加载失败：\(error.localizedDescription)"
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            parent.isLoading = false
+            parent.errorMessage = "视频连接失败：\(error.localizedDescription)"
         }
 
         func webView(

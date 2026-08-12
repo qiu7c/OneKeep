@@ -3,12 +3,19 @@ import SwiftUI
 
 struct TodayView: View {
     @EnvironmentObject private var planLibrary: PlanLibraryStore
+    @Environment(\.managedObjectContext) private var managedObjectContext
     @FetchRequest private var sessionObjects: FetchedResults<NSManagedObject>
+    @FetchRequest private var setObjects: FetchedResults<NSManagedObject>
+    @State private var cleanupError: String?
 
     init() {
         let request = NSFetchRequest<NSManagedObject>(entityName: "WorkoutSessionEntity")
         request.sortDescriptors = [NSSortDescriptor(key: "startedAt", ascending: false)]
         _sessionObjects = FetchRequest(fetchRequest: request, animation: .default)
+
+        let sets = NSFetchRequest<NSManagedObject>(entityName: "PerformedSetEntity")
+        sets.sortDescriptors = [NSSortDescriptor(key: "completedAt", ascending: true)]
+        _setObjects = FetchRequest(fetchRequest: sets, animation: .default)
     }
 
     private var todayItem: (plan: TrainingPlan, day: TrainingDay)? {
@@ -19,13 +26,29 @@ struct TodayView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 header
+                if let activeSession {
+                    if let activeDay = trainingDay(id: activeSession.trainingDayID) {
+                        continueWorkoutCard(activeSession, day: activeDay)
+                    } else {
+                        unavailableWorkoutCard(activeSession)
+                    }
+                }
                 todayWorkout
+                quickWorkoutCard
                 weeklyProgress
             }
             .padding(20)
         }
         .background(OKColor.background)
         .navigationTitle("今日")
+        .alert("无法更新训练记录", isPresented: Binding(
+            get: { cleanupError != nil },
+            set: { if !$0 { cleanupError = nil } }
+        )) {
+            Button("知道了", role: .cancel) {}
+        } message: {
+            Text(cleanupError ?? "未知错误")
+        }
     }
 
     private var header: some View {
@@ -100,6 +123,104 @@ struct TodayView: View {
             Text(scheduledThisWeek == 0 ? "本周暂无计划安排" : "仅统计已完成并保存的训练")
                 .font(.footnote)
                 .foregroundStyle(OKColor.secondaryText)
+        }
+        .okCard()
+    }
+
+    private var quickWorkoutCard: some View {
+        NavigationLink {
+            QuickWorkoutComposerView()
+        } label: {
+            HStack(spacing: 14) {
+                Image(systemName: "bolt")
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("临时训练").font(.headline).foregroundStyle(.primary)
+                    Text("从动作库选动作，不改动现有计划")
+                        .font(.footnote)
+                        .foregroundStyle(OKColor.secondaryText)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(OKColor.secondaryText)
+            }
+        }
+        .buttonStyle(.plain)
+        .okCard()
+    }
+
+    private struct ActiveSession {
+        let id: UUID
+        let trainingDayID: UUID
+        let title: String
+        let startedAt: Date
+        let completedSets: Int
+    }
+
+    private var activeSession: ActiveSession? {
+        guard let object = sessionObjects.first(where: {
+            ($0.value(forKey: "status") as? String) == WorkoutSessionRepository.Status.active.rawValue
+        }),
+        let id = object.value(forKey: "id") as? UUID,
+        let dayID = object.value(forKey: "trainingDayID") as? UUID,
+        let startedAt = object.value(forKey: "startedAt") as? Date else { return nil }
+        let count = setObjects.filter { ($0.value(forKey: "sessionID") as? UUID) == id }.count
+        return ActiveSession(
+            id: id,
+            trainingDayID: dayID,
+            title: object.value(forKey: "title") as? String ?? "未完成训练",
+            startedAt: startedAt,
+            completedSets: count
+        )
+    }
+
+    private func trainingDay(id: UUID) -> TrainingDay? {
+        planLibrary.plans.lazy.flatMap(\.days).first { $0.id == id }
+    }
+
+    private func continueWorkoutCard(_ session: ActiveSession, day: TrainingDay) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("有一项训练尚未完成", systemImage: "arrow.clockwise.circle")
+                .font(.headline)
+            Text(session.title)
+                .font(.title3.bold())
+            Text("已完成 \(session.completedSets) 组 · 开始于 \(session.startedAt.formatted(date: .omitted, time: .shortened))")
+                .font(.subheadline)
+                .foregroundStyle(OKColor.secondaryText)
+            NavigationLink {
+                WorkoutView(
+                    trainingDay: day,
+                    resumeSessionID: session.id,
+                    completedStepCount: session.completedSets
+                )
+            } label: {
+                Label("继续训练", systemImage: "play.fill")
+            }
+            .buttonStyle(OKPrimaryButtonStyle())
+        }
+        .okCard()
+    }
+
+    private func unavailableWorkoutCard(_ session: ActiveSession) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("未完成训练的原计划已不存在", systemImage: "exclamationmark.circle")
+                .font(.headline)
+            Text(session.title)
+                .font(.title3.bold())
+            Text("可能是计划被删除或由备份替换。可以结束这条进行中记录，不会计入完成次数。")
+                .font(.subheadline)
+                .foregroundStyle(OKColor.secondaryText)
+            Button(role: .destructive) {
+                do {
+                    try WorkoutSessionRepository(context: managedObjectContext).cancel(id: session.id)
+                } catch {
+                    cleanupError = error.localizedDescription
+                }
+            } label: {
+                Label("结束这条记录", systemImage: "xmark.circle")
+            }
+            .buttonStyle(.bordered)
         }
         .okCard()
     }

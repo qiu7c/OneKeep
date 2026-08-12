@@ -9,6 +9,7 @@ struct RecordsView: View {
     @State private var selectedQuickLogKind: QuickLogKind?
     @State private var showsProfile = false
     @State private var profile = UserProfilePreferences.load()
+    @State private var weightUnit = WeightUnit.preferred
 
     init() {
         let sessions = NSFetchRequest<NSManagedObject>(entityName: "WorkoutSessionEntity")
@@ -38,6 +39,7 @@ struct RecordsView: View {
         }
         .background(OKColor.background)
         .navigationTitle("我的")
+        .onAppear { weightUnit = WeightUnit.preferred }
         .sheet(isPresented: $showsProfile, onDismiss: { profile = UserProfilePreferences.load() }) {
             NavigationStack { ProfileEditorView() }
         }
@@ -74,7 +76,7 @@ struct RecordsView: View {
     private var profileSummary: String {
         var values: [String] = []
         if let height = profile.heightCentimeters { values.append("\(height.formatted()) cm") }
-        if let weight = profile.weightKilograms { values.append("\(weight.formatted()) kg") }
+        if let weight = profile.weightKilograms { values.append(weightUnit.formatted(kilograms: weight)) }
         return values.isEmpty ? "资料仅保存在此设备" : values.joined(separator: " · ")
     }
 
@@ -136,20 +138,31 @@ struct RecordsView: View {
             Text("最近训练")
                 .font(.headline)
             ForEach(Array(completedSessions.prefix(5)), id: \.objectID) { session in
-                HStack(spacing: 12) {
-                    Image(systemName: "checkmark.circle")
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(session.value(forKey: "title") as? String ?? "训练")
-                        if let date = session.value(forKey: "startedAt") as? Date {
-                            Text(date, format: .dateTime.month().day().hour().minute())
-                                .font(.caption)
+                if let id = session.value(forKey: "id") as? UUID,
+                   let startedAt = session.value(forKey: "startedAt") as? Date {
+                    NavigationLink {
+                        WorkoutHistoryDetailView(
+                            sessionID: id,
+                            title: session.value(forKey: "title") as? String ?? "训练",
+                            startedAt: startedAt,
+                            endedAt: session.value(forKey: "endedAt") as? Date
+                        )
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "checkmark.circle")
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(session.value(forKey: "title") as? String ?? "训练")
+                                Text(startedAt, format: .dateTime.month().day().hour().minute())
+                                    .font(.caption)
+                                    .foregroundStyle(OKColor.secondaryText)
+                            }
+                            Spacer()
+                            Text(durationText(session))
+                                .font(.subheadline.monospacedDigit())
                                 .foregroundStyle(OKColor.secondaryText)
                         }
                     }
-                    Spacer()
-                    Text(durationText(session))
-                        .font(.subheadline.monospacedDigit())
-                        .foregroundStyle(OKColor.secondaryText)
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -159,9 +172,23 @@ struct RecordsView: View {
     private var settingsCard: some View {
         VStack(spacing: 0) {
             NavigationLink {
+                WorkoutSettingsView()
+            } label: {
+                settingsLabel(title: "训练设置", detail: "重量单位、计时通知、振动与自动休息", icon: "timer")
+            }
+            .buttonStyle(.plain)
+            Divider().padding(.leading, 42)
+            NavigationLink {
+                VideoMediaSettingsView()
+            } label: {
+                settingsLabel(title: "视频与缓存", detail: "链接检测、备用源与离线缓存", icon: "play.rectangle")
+            }
+            .buttonStyle(.plain)
+            Divider().padding(.leading, 42)
+            NavigationLink {
                 AISettingsView()
             } label: {
-                settingsLabel(title: "AI 接口与提示词", detail: "支持连接测试，API Key 仅存钥匙串", icon: "slider.horizontal.3")
+                settingsLabel(title: "AI 模型配置", detail: "切换服务、获取模型并测试连接", icon: "slider.horizontal.3")
             }
             .buttonStyle(.plain)
             Divider().padding(.leading, 42)
@@ -230,7 +257,7 @@ struct RecordsView: View {
 
     private func quickLogTitle(_ item: NSManagedObject, kind: QuickLogKind) -> String {
         if kind == .body, let value = (item.value(forKey: "value") as? NSNumber)?.doubleValue {
-            return "体重 \(value.formatted()) kg"
+            return "体重 \(weightUnit.formatted(kilograms: value))"
         }
         let note = (item.value(forKey: "note") as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return note.isEmpty ? kind.title : note

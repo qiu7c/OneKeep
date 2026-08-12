@@ -216,6 +216,15 @@ struct AIPlanImportView: View {
             Text("\(plan.days.count) 个训练日 · \(plan.days.reduce(0) { $0 + $1.blocks.count }) 个阶段 · \(plan.days.reduce(0) { $0 + $1.exercises.count }) 个动作")
                 .font(.subheadline)
                 .foregroundStyle(OKColor.secondaryText)
+            if unresolvedExerciseCount(in: plan) > 0 {
+                Label("有 \(unresolvedExerciseCount(in: plan)) 个动作需要在编辑器中确认", systemImage: "questionmark.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            } else {
+                Label("全部动作已关联动作库", systemImage: "checkmark.seal")
+                    .font(.footnote)
+                    .foregroundStyle(OKColor.secondaryText)
+            }
             NavigationLink {
                 if let binding = generatedPlanBinding { AIPlanReviewView(plan: binding) }
             } label: {
@@ -223,14 +232,22 @@ struct AIPlanImportView: View {
             }
             .frame(minHeight: 44)
             Button {
-                planLibrary.save(plan)
-                dismiss()
+                do {
+                    planLibrary.save(try importService.finalizeForSaving(plan))
+                    dismiss()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
             } label: {
                 Label("确认并填入计划", systemImage: "checkmark")
             }
             .buttonStyle(OKPrimaryButtonStyle())
         }
         .okCard()
+    }
+
+    private func unresolvedExerciseCount(in plan: TrainingPlan) -> Int {
+        plan.days.flatMap(\.exercises).filter { ExerciseLibraryCatalog.item(id: $0.libraryID) == nil }.count
     }
 
     private var generatedPlanBinding: Binding<TrainingPlan>? {

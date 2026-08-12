@@ -13,6 +13,7 @@ struct QuickLogEditorView: View {
     @State private var sleepStart = Calendar.current.date(bySettingHour: 23, minute: 0, second: 0, of: .now) ?? .now
     @State private var sleepEnd = Calendar.current.date(byAdding: .hour, value: 8, to: .now) ?? .now
     @State private var errorMessage: String?
+    private let weightUnit = WeightUnit.preferred
 
     var body: some View {
         Form {
@@ -34,7 +35,7 @@ struct QuickLogEditorView: View {
                     HStack {
                         TextField("体重", text: $value)
                             .keyboardType(.decimalPad)
-                        Text("kg")
+                        Text(weightUnit.symbol)
                             .foregroundStyle(OKColor.secondaryText)
                     }
                     TextField("围度、体态等备注（可选）", text: $note)
@@ -89,7 +90,7 @@ struct QuickLogEditorView: View {
             normalizedNote = "\(formatter.string(from: sleepStart))–\(formatter.string(from: sleepEnd))" + (extra.isEmpty ? "" : " · \(extra)")
             numericValue = sleepEnd.timeIntervalSince(sleepStart) / 3600
         case .body:
-            guard let parsed = Double(value), (10...500).contains(parsed) else {
+            guard let parsed = weightUnit.parseKilograms(value), (10...500).contains(parsed) else {
                 errorMessage = "请输入有效体重"
                 return
             }
@@ -112,4 +113,3 @@ struct QuickLogEditorView: View {
         }
     }
 }
-

@@ -6,6 +6,7 @@ final class WorkoutSessionRepository {
     enum Status: String {
         case active
         case completed
+        case cancelled
     }
 
     private let context: NSManagedObjectContext
@@ -58,6 +59,14 @@ final class WorkoutSessionRepository {
     func finish(id: UUID, at date: Date = .now) throws {
         guard let session = try session(id: id) else { return }
         session.setValue(Status.completed.rawValue, forKey: "status")
+        session.setValue(date, forKey: "endedAt")
+        session.setValue(date, forKey: "updatedAt")
+        try context.save()
+    }
+
+    func cancel(id: UUID, at date: Date = .now) throws {
+        guard let session = try session(id: id) else { return }
+        session.setValue(Status.cancelled.rawValue, forKey: "status")
         session.setValue(date, forKey: "endedAt")
         session.setValue(date, forKey: "updatedAt")
         try context.save()

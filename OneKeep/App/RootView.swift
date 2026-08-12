@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var planLibrary: PlanLibraryStore
+    @Environment(\.scenePhase) private var scenePhase
 
     private enum Tab: Hashable {
         case today
@@ -39,6 +40,11 @@ struct RootView: View {
         }
         .task {
             planLibrary.loadIfNeeded()
+            await ExerciseVideoHealthService.shared.checkCatalogIfNeeded(ExerciseLibraryCatalog.allItems())
+        }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            Task { await ExerciseVideoHealthService.shared.checkCatalogIfNeeded(ExerciseLibraryCatalog.allItems()) }
         }
         .alert(item: $planLibrary.presentedError) { error in
             Alert(

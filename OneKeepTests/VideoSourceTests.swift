@@ -29,6 +29,13 @@ final class VideoSourceTests: XCTestCase {
         }
         XCTAssertEqual(url.host, "player.bilibili.com")
         XCTAssertTrue(url.absoluteString.contains("BV1Example"))
+        XCTAssertTrue(url.absoluteString.contains("autoplay=0"))
+    }
+
+    func testBilibiliMultiPartURLKeepsSelectedPage() throws {
+        let source = try XCTUnwrap(VideoSource(urlString: "https://www.bilibili.com/video/BV1Rb411a7cQ/?p=2"))
+        guard case .web(let url) = source else { return XCTFail("Expected web video") }
+        XCTAssertTrue(url.absoluteString.contains("page=2"))
     }
 
     func testRejectsNonHTTPURL() {

@@ -12,6 +12,8 @@ struct CompleteBackup: Codable {
     let performedSets: [BackupPerformedSet]
     let quickLogs: [BackupQuickLog]
     let chatHistory: [AIChatMessage]?
+    let exerciseLibraryOverrides: [ExerciseLibraryItem]?
+    let workoutPreferences: WorkoutPreferences?
 }
 
 struct BackupWorkoutSession: Codable {
@@ -69,7 +71,7 @@ enum CompleteBackupError: LocalizedError {
 
 @MainActor
 final class CompleteBackupService {
-    static let formatVersion = 1
+    static let formatVersion = 3
 
     private let context: NSManagedObjectContext
     private let encoder: JSONEncoder
@@ -94,7 +96,9 @@ final class CompleteBackupService {
             sessions: try fetchSessions(),
             performedSets: try fetchSets(),
             quickLogs: try fetchQuickLogs(),
-            chatHistory: AIConversationPreferences.load()
+            chatHistory: AIConversationPreferences.load(),
+            exerciseLibraryOverrides: ExerciseLibraryPreferences.load(),
+            workoutPreferences: WorkoutPreferencesStore.load()
         )
         let data = try encoder.encode(backup)
         let manifest = BackupManifest(
@@ -136,6 +140,8 @@ final class CompleteBackupService {
             AIProviderPreferences.clear()
         }
         AIConversationPreferences.save(backup.chatHistory ?? [])
+        try ExerciseLibraryPreferences.save(backup.exerciseLibraryOverrides ?? [])
+        try WorkoutPreferencesStore.save(backup.workoutPreferences ?? WorkoutPreferences())
     }
 
     private func replaceLocalData(with backup: CompleteBackup) throws {
