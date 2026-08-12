@@ -21,11 +21,24 @@ struct WorkoutSettingsView: View {
             Section("计时与反馈") {
                 Toggle("计时结束通知", isOn: $preferences.timerNotifications)
                 Toggle("完成动作时振动", isOn: $preferences.hapticFeedback)
+                Toggle("训练语音提示", isOn: $preferences.voicePrompts)
+                if preferences.voicePrompts {
+                    VStack(alignment: .leading) {
+                        Text("语音音量")
+                        Slider(value: $preferences.voiceVolume, in: 0.2...1)
+                    }
+                }
+                Toggle("计时动作自动完成并继续", isOn: $preferences.automaticWorkoutFlow)
                 Toggle("完成一组后自动开始休息", isOn: $preferences.autoStartRest)
             }
 
+            Section("动作视频") {
+                Toggle("视频默认静音", isOn: $preferences.muteExerciseVideos)
+                Toggle("仅在 Wi-Fi 下播放", isOn: $preferences.wifiOnlyVideo)
+            }
+
             Section {
-                Text("关闭自动休息后，应用仍会显示计划休息时长，由你手动开始。所有设置仅保存在本机，并包含在完整 ZIP 备份中。")
+                Text("计时动作结束后可自动记录本组并进入休息；次数型和正计时动作仍需确认完成。所有设置仅保存在本机，并包含在完整 ZIP 备份中。")
                     .font(.footnote)
                     .foregroundStyle(OKColor.secondaryText)
             }

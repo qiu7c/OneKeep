@@ -35,6 +35,7 @@ final class WorkoutSessionRepository {
         repetitions: Int?,
         weightKilograms: Double?,
         durationSeconds: Int?,
+        isSkipped: Bool = false,
         at date: Date = .now
     ) throws {
         let object = NSEntityDescription.insertNewObject(forEntityName: "PerformedSetEntity", into: context)
@@ -48,6 +49,7 @@ final class WorkoutSessionRepository {
         object.setValue(step.exercise.plannedWeightKilograms, forKey: "plannedWeightKilograms")
         object.setValue(weightKilograms, forKey: "weightKilograms")
         object.setValue(durationSeconds.map { Int64($0) }, forKey: "durationSeconds")
+        object.setValue(isSkipped, forKey: "isSkipped")
         object.setValue(date, forKey: "completedAt")
 
         if let session = try session(id: sessionID) {
@@ -61,6 +63,18 @@ final class WorkoutSessionRepository {
         session.setValue(Status.completed.rawValue, forKey: "status")
         session.setValue(date, forKey: "endedAt")
         session.setValue(date, forKey: "updatedAt")
+        try context.save()
+    }
+
+    func deleteSets(sessionID: UUID, stepIndexes: [Int]) throws {
+        guard !stepIndexes.isEmpty else { return }
+        let request = NSFetchRequest<NSManagedObject>(entityName: "PerformedSetEntity")
+        request.predicate = NSPredicate(
+            format: "sessionID == %@ AND stepIndex IN %@",
+            sessionID as NSUUID,
+            stepIndexes.map { NSNumber(value: $0) }
+        )
+        try context.fetch(request).forEach(context.delete)
         try context.save()
     }
 

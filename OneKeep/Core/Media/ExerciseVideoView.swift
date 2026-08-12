@@ -1,24 +1,51 @@
 import AVKit
+import Network
 import SwiftUI
 import WebKit
 
+enum ExerciseVideoPlaybackState: Equatable {
+    case playing
+    case paused
+    case previewMuted
+    case pausedMuted
+}
+
 struct ExerciseVideoView: View {
     let source: VideoSource
+    var playbackState: ExerciseVideoPlaybackState = .playing
+    var restartToken = 0
+    @StateObject private var network = ExerciseVideoNetworkState()
 
     var body: some View {
         Group {
+            if WorkoutPreferencesStore.load().wifiOnlyVideo,
+               network.isResolved,
+               !network.usesWiFi {
+                VStack(spacing: 10) {
+                    Image(systemName: "wifi.slash")
+                    Text("已暂停视频播放")
+                        .font(.headline)
+                    Text("训练设置已启用仅 Wi-Fi 播放")
+                        .font(.caption)
+                        .foregroundStyle(OKColor.secondaryText)
+                }
+                .frame(maxWidth: .infinity)
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .background(OKColor.surface)
+            } else {
             switch source {
             case .native(let url):
-                NativeVideoPlayer(url: url)
+                NativeVideoPlayer(url: url, playbackState: playbackState, restartToken: restartToken)
             case .web(let url):
                 if VideoSource.isBilibiliURL(url) {
-                    BilibiliNativeVideoPlayer(url: url)
+                    BilibiliNativeVideoPlayer(url: url, playbackState: playbackState, restartToken: restartToken)
                 } else {
                     WebVideoPlayer(url: url)
                 }
             }
+            }
         }
-        .aspectRatio(16 / 9, contentMode: .fit)
+        .id(source.playbackURL.absoluteString)
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -28,12 +55,35 @@ struct ExerciseVideoView: View {
     }
 }
 
+private final class ExerciseVideoNetworkState: ObservableObject {
+    @Published private(set) var isResolved = false
+    @Published private(set) var usesWiFi = false
+    private let monitor = NWPathMonitor()
+    private let queue = DispatchQueue(label: "onekeep.video.network")
+
+    init() {
+        monitor.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async {
+                self?.usesWiFi = path.usesInterfaceType(.wifi)
+                self?.isResolved = true
+            }
+        }
+        monitor.start(queue: queue)
+    }
+
+    deinit { monitor.cancel() }
+}
+
 private struct BilibiliNativeVideoPlayer: View {
     let url: URL
+    let playbackState: ExerciseVideoPlaybackState
+    let restartToken: Int
     @StateObject private var model: BilibiliPlayerModel
 
-    init(url: URL) {
+    init(url: URL, playbackState: ExerciseVideoPlaybackState, restartToken: Int) {
         self.url = url
+        self.playbackState = playbackState
+        self.restartToken = restartToken
         _model = StateObject(wrappedValue: BilibiliPlayerModel(pageURL: url))
     }
 
@@ -62,7 +112,17 @@ private struct BilibiliNativeVideoPlayer: View {
                 .foregroundStyle(.white.opacity(0.8))
             }
         }
-        .task(id: url) { await model.load() }
+        .aspectRatio(model.videoAspectRatio, contentMode: .fit)
+        .task(id: url) {
+            await model.load()
+            model.apply(playbackState, restartToken: restartToken)
+        }
+        .onChange(of: playbackState) { state in
+            model.apply(state, restartToken: restartToken)
+        }
+        .onChange(of: restartToken) { token in
+            model.apply(playbackState, restartToken: token)
+        }
         .onDisappear { model.player.pause() }
     }
 }
@@ -71,10 +131,12 @@ private struct BilibiliNativeVideoPlayer: View {
 private final class BilibiliPlayerModel: ObservableObject {
     @Published private(set) var isReady = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var videoAspectRatio = VideoPresentation.fallbackAspectRatio
     let player = AVPlayer()
 
     private let pageURL: URL
     private var hasLoaded = false
+    private var appliedRestartToken: Int?
 
     init(pageURL: URL) {
         self.pageURL = pageURL
@@ -88,15 +150,14 @@ private final class BilibiliPlayerModel: ObservableObject {
         player.pause()
         do {
             let source = try await BilibiliPlaybackResolver.shared.resolve(pageURL)
-            let item = try await Self.makeItem(source)
-            guard try await item.asset.load(.isPlayable) else {
+            let preparedItem = try await Self.makeItem(source)
+            guard try await preparedItem.item.asset.load(.isPlayable) else {
                 throw BilibiliPlaybackResolver.ResolverError.noPlayableStream
             }
             guard !Task.isCancelled else { return }
-            player.replaceCurrentItem(with: item)
+            player.replaceCurrentItem(with: preparedItem.item)
+            videoAspectRatio = preparedItem.aspectRatio
             isReady = true
-            VideoAudioSession.activate()
-            player.play()
         } catch is CancellationError {
             hasLoaded = false
         } catch {
@@ -104,23 +165,54 @@ private final class BilibiliPlayerModel: ObservableObject {
         }
     }
 
-    private static func makeItem(_ source: BilibiliPlaybackSource) async throws -> AVPlayerItem {
+    func apply(_ state: ExerciseVideoPlaybackState, restartToken: Int) {
+        guard isReady else { return }
+        if appliedRestartToken != restartToken {
+            appliedRestartToken = restartToken
+            player.seek(to: .zero)
+        }
+        player.isMuted = state == .previewMuted || state == .pausedMuted
+        switch state {
+        case .playing, .previewMuted:
+            VideoAudioSession.activate()
+            player.play()
+        case .paused, .pausedMuted:
+            player.pause()
+        }
+    }
+
+    private struct PreparedPlayerItem {
+        let item: AVPlayerItem
+        let aspectRatio: CGFloat
+    }
+
+    private static func makeItem(_ source: BilibiliPlaybackSource) async throws -> PreparedPlayerItem {
         switch source.stream {
         case .progressive(let urls):
-            guard let first = urls.first else { throw BilibiliPlaybackResolver.ResolverError.noPlayableStream }
-            if urls.count == 1 {
-                return AVPlayerItem(asset: asset(url: first, headers: source.headers))
-            }
+            guard !urls.isEmpty else { throw BilibiliPlaybackResolver.ResolverError.noPlayableStream }
             let assets = urls.map { asset(url: $0, headers: source.headers) }
-            return AVPlayerItem(asset: try await concatenate(assets))
+            let aspectRatio = await VideoPresentation.aspectRatio(for: assets[0])
+            if urls.count == 1 {
+                return PreparedPlayerItem(item: AVPlayerItem(asset: assets[0]), aspectRatio: aspectRatio)
+            }
+            return PreparedPlayerItem(
+                item: AVPlayerItem(asset: try await concatenate(assets)),
+                aspectRatio: aspectRatio
+            )
 
         case .dash(let videoURL, let audioURL):
             let videoAsset = asset(url: videoURL, headers: source.headers)
-            guard let audioURL else { return AVPlayerItem(asset: videoAsset) }
-            return AVPlayerItem(asset: try await combine(
-                video: videoAsset,
-                audio: asset(url: audioURL, headers: source.headers)
-            ))
+            let aspectRatio = await VideoPresentation.aspectRatio(for: videoAsset)
+            guard let audioURL else {
+                return PreparedPlayerItem(item: AVPlayerItem(asset: videoAsset), aspectRatio: aspectRatio)
+            }
+            return PreparedPlayerItem(
+                item: AVPlayerItem(asset: try await combine(
+                    video: videoAsset,
+                    audio: asset(url: audioURL, headers: source.headers)
+                )),
+                aspectRatio: aspectRatio
+            )
         }
     }
 
@@ -141,6 +233,9 @@ private final class BilibiliPlayerModel: ObservableObject {
             let duration = try await asset.load(.duration)
             guard let sourceVideo = videoTracks.first, duration.isNumeric else {
                 throw BilibiliPlaybackResolver.ResolverError.noPlayableStream
+            }
+            if cursor == .zero {
+                videoTrack.preferredTransform = try await sourceVideo.load(.preferredTransform)
             }
             try videoTrack.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: sourceVideo, at: cursor)
             if let sourceAudio = audioTracks.first {
@@ -166,6 +261,7 @@ private final class BilibiliPlayerModel: ObservableObject {
             throw BilibiliPlaybackResolver.ResolverError.noPlayableStream
         }
         let duration = CMTimeCompare(videoDuration, audioDuration) <= 0 ? videoDuration : audioDuration
+        videoTrack.preferredTransform = try await sourceVideo.load(.preferredTransform)
         try videoTrack.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: sourceVideo, at: .zero)
         try audioTrack.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: sourceAudio, at: .zero)
         return composition
@@ -204,6 +300,27 @@ private enum VideoAudioSession {
     }
 }
 
+private enum VideoPresentation {
+    static let fallbackAspectRatio: CGFloat = 16 / 9
+
+    static func aspectRatio(for asset: AVAsset) async -> CGFloat {
+        do {
+            guard let track = try await asset.loadTracks(withMediaType: .video).first else {
+                return fallbackAspectRatio
+            }
+            let naturalSize = try await track.load(.naturalSize)
+            let transform = try await track.load(.preferredTransform)
+            let displaySize = naturalSize.applying(transform)
+            let width = abs(displaySize.width)
+            let height = abs(displaySize.height)
+            guard width > 0, height > 0 else { return fallbackAspectRatio }
+            return min(max(width / height, 9 / 16), 21 / 9)
+        } catch {
+            return fallbackAspectRatio
+        }
+    }
+}
+
 private struct WebVideoPlayer: View {
     let url: URL
     @State private var isLoading = true
@@ -238,29 +355,58 @@ private struct WebVideoPlayer: View {
                 .background(OKColor.surface)
             }
         }
+        .aspectRatio(VideoPresentation.fallbackAspectRatio, contentMode: .fit)
     }
 }
 
 private struct NativeVideoPlayer: View {
     let url: URL
+    let playbackState: ExerciseVideoPlaybackState
+    let restartToken: Int
     @State private var player: AVPlayer
+    @State private var videoAspectRatio = VideoPresentation.fallbackAspectRatio
+    @State private var appliedRestartToken: Int?
 
-    init(url: URL) {
+    init(url: URL, playbackState: ExerciseVideoPlaybackState, restartToken: Int) {
         self.url = url
-        _player = State(initialValue: AVPlayer(url: url))
+        self.playbackState = playbackState
+        self.restartToken = restartToken
+        _player = State(initialValue: AVPlayer())
     }
 
     var body: some View {
         NativePlayerController(player: player)
+            .aspectRatio(videoAspectRatio, contentMode: .fit)
             .task(id: url) {
                 let playbackURL = await ExerciseVideoOfflineStore.shared.localURL(for: url) ?? url
-                player.replaceCurrentItem(with: AVPlayerItem(url: playbackURL))
-                VideoAudioSession.activate()
-                player.play()
+                guard !Task.isCancelled else { return }
+                let item = AVPlayerItem(url: playbackURL)
+                player.replaceCurrentItem(with: item)
+                let aspectRatio = await VideoPresentation.aspectRatio(for: item.asset)
+                guard !Task.isCancelled else { return }
+                videoAspectRatio = aspectRatio
+                applyPlaybackState()
             }
+            .onChange(of: playbackState) { _ in applyPlaybackState() }
+            .onChange(of: restartToken) { _ in applyPlaybackState() }
             .onDisappear {
                 player.pause()
             }
+    }
+
+    private func applyPlaybackState() {
+        if appliedRestartToken != restartToken {
+            appliedRestartToken = restartToken
+            player.seek(to: .zero)
+        }
+        player.isMuted = playbackState == .previewMuted || playbackState == .pausedMuted
+        switch playbackState {
+        case .playing, .previewMuted:
+            VideoAudioSession.activate()
+            player.play()
+        case .paused, .pausedMuted:
+            player.pause()
+        }
     }
 }
 

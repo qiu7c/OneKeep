@@ -174,7 +174,7 @@ struct RecordsView: View {
             NavigationLink {
                 WorkoutSettingsView()
             } label: {
-                settingsLabel(title: "训练设置", detail: "重量单位、计时通知、振动与自动休息", icon: "timer")
+                settingsLabel(title: "训练设置", detail: "重量单位、语音提示、自动训练与休息", icon: "timer")
             }
             .buttonStyle(.plain)
             NavigationLink {
@@ -228,7 +228,10 @@ struct RecordsView: View {
 
     private var weeklySets: [NSManagedObject] {
         guard let weekInterval else { return [] }
-        return setObjects.filter { ($0.value(forKey: "completedAt") as? Date).map(weekInterval.contains) ?? false }
+        return setObjects.filter {
+            (($0.value(forKey: "completedAt") as? Date).map(weekInterval.contains) ?? false) &&
+            !((($0.value(forKey: "isSkipped") as? NSNumber)?.boolValue) ?? false)
+        }
     }
 
     private var weeklyMinutes: Int {

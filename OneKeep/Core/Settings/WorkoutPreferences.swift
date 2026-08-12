@@ -40,21 +40,37 @@ struct WorkoutPreferences: Codable, Equatable {
     var timerNotifications = true
     var hapticFeedback = true
     var autoStartRest = true
+    var voicePrompts = true
+    var automaticWorkoutFlow = true
+    var voiceVolume = 1.0
+    var muteExerciseVideos = false
+    var wifiOnlyVideo = false
     var weightUnit: WeightUnit = .kilograms
 
     private enum CodingKeys: String, CodingKey {
-        case timerNotifications, hapticFeedback, autoStartRest, weightUnit
+        case timerNotifications, hapticFeedback, autoStartRest, voicePrompts, automaticWorkoutFlow
+        case voiceVolume, muteExerciseVideos, wifiOnlyVideo, weightUnit
     }
 
     init(
         timerNotifications: Bool = true,
         hapticFeedback: Bool = true,
         autoStartRest: Bool = true,
+        voicePrompts: Bool = true,
+        automaticWorkoutFlow: Bool = true,
+        voiceVolume: Double = 1,
+        muteExerciseVideos: Bool = false,
+        wifiOnlyVideo: Bool = false,
         weightUnit: WeightUnit = .kilograms
     ) {
         self.timerNotifications = timerNotifications
         self.hapticFeedback = hapticFeedback
         self.autoStartRest = autoStartRest
+        self.voicePrompts = voicePrompts
+        self.automaticWorkoutFlow = automaticWorkoutFlow
+        self.voiceVolume = voiceVolume
+        self.muteExerciseVideos = muteExerciseVideos
+        self.wifiOnlyVideo = wifiOnlyVideo
         self.weightUnit = weightUnit
     }
 
@@ -63,6 +79,11 @@ struct WorkoutPreferences: Codable, Equatable {
         timerNotifications = try values.decodeIfPresent(Bool.self, forKey: .timerNotifications) ?? true
         hapticFeedback = try values.decodeIfPresent(Bool.self, forKey: .hapticFeedback) ?? true
         autoStartRest = try values.decodeIfPresent(Bool.self, forKey: .autoStartRest) ?? true
+        voicePrompts = try values.decodeIfPresent(Bool.self, forKey: .voicePrompts) ?? true
+        automaticWorkoutFlow = try values.decodeIfPresent(Bool.self, forKey: .automaticWorkoutFlow) ?? true
+        voiceVolume = min(max(try values.decodeIfPresent(Double.self, forKey: .voiceVolume) ?? 1, 0), 1)
+        muteExerciseVideos = try values.decodeIfPresent(Bool.self, forKey: .muteExerciseVideos) ?? false
+        wifiOnlyVideo = try values.decodeIfPresent(Bool.self, forKey: .wifiOnlyVideo) ?? false
         weightUnit = try values.decodeIfPresent(WeightUnit.self, forKey: .weightUnit) ?? .kilograms
     }
 }

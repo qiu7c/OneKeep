@@ -157,7 +157,9 @@ struct TodayView: View {
         let trainingDayID: UUID
         let title: String
         let startedAt: Date
+        let progressedSets: Int
         let completedSets: Int
+        let skippedSets: Int
     }
 
     private static let dateFormatter: DateFormatter = {
@@ -176,13 +178,16 @@ struct TodayView: View {
         let id = object.value(forKey: "id") as? UUID,
         let dayID = object.value(forKey: "trainingDayID") as? UUID,
         let startedAt = object.value(forKey: "startedAt") as? Date else { return nil }
-        let count = setObjects.filter { ($0.value(forKey: "sessionID") as? UUID) == id }.count
+        let sessionSets = setObjects.filter { ($0.value(forKey: "sessionID") as? UUID) == id }
+        let skippedSets = sessionSets.filter { ($0.value(forKey: "isSkipped") as? NSNumber)?.boolValue ?? false }.count
         return ActiveSession(
             id: id,
             trainingDayID: dayID,
             title: object.value(forKey: "title") as? String ?? "未完成训练",
             startedAt: startedAt,
-            completedSets: count
+            progressedSets: sessionSets.count,
+            completedSets: sessionSets.count - skippedSets,
+            skippedSets: skippedSets
         )
     }
 
@@ -209,25 +214,25 @@ struct TodayView: View {
                         .font(.title3.bold())
                 }
                 Spacer()
-                Text("\(min(session.completedSets, totalSets)) / \(totalSets)")
+                Text("\(min(session.progressedSets, totalSets)) / \(totalSets)")
                     .font(.subheadline.monospacedDigit())
                     .foregroundStyle(OKColor.secondaryText)
             }
 
             ProgressView(
-                value: Double(min(session.completedSets, totalSets)),
+                value: Double(min(session.progressedSets, totalSets)),
                 total: Double(max(1, totalSets))
             )
             .tint(OKColor.accent)
 
-            Text("开始于 \(session.startedAt.formatted(date: .omitted, time: .shortened)) · 进度已自动保存在本机")
+            Text(progressDescription(session))
                 .font(.footnote)
                 .foregroundStyle(OKColor.secondaryText)
             NavigationLink {
                 WorkoutView(
                     trainingDay: day,
                     resumeSessionID: session.id,
-                    completedStepCount: session.completedSets
+                    completedStepCount: session.progressedSets
                 )
             } label: {
                 Label("返回训练", systemImage: "play.fill")
@@ -235,6 +240,13 @@ struct TodayView: View {
             .buttonStyle(OKPrimaryButtonStyle())
         }
         .okCard()
+    }
+
+    private func progressDescription(_ session: ActiveSession) -> String {
+        var values = ["完成 \(session.completedSets) 组"]
+        if session.skippedSets > 0 { values.append("跳过 \(session.skippedSets) 组") }
+        values.append("开始于 \(session.startedAt.formatted(date: .omitted, time: .shortened))")
+        return values.joined(separator: " · ")
     }
 
     private func unavailableWorkoutCard(_ session: ActiveSession) -> some View {

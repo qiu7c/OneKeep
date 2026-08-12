@@ -32,23 +32,28 @@ struct WorkoutHistoryDetailView: View {
                     LabeledContent("结束", value: endedAt.formatted(date: .omitted, time: .shortened))
                     LabeledContent("总时长", value: durationText(startedAt, endedAt))
                 }
-                LabeledContent("完成组数", value: String(sets.count))
+                LabeledContent("完成组数", value: String(completedSets.count))
+                if skippedSets.count > 0 {
+                    LabeledContent("跳过组数", value: String(skippedSets.count))
+                }
             }
 
             ForEach(exerciseNames, id: \.self) { name in
                 Section(name) {
                     ForEach(Array(setsForExercise(name).enumerated()), id: \.element.objectID) { index, set in
                         HStack {
-                            Text("第 \(index + 1) 组")
+                            Text("第 \((set.value(forKey: "setIndex") as? NSNumber)?.intValue ?? index + 1) 组")
                             Spacer()
-                            Text(setDescription(set))
+                            Text(isSkipped(set) ? "已跳过" : setDescription(set))
                                 .foregroundStyle(OKColor.secondaryText)
                         }
                     }
-                    NavigationLink {
-                        ExerciseHistoryView(exerciseName: name)
-                    } label: {
-                        Label("查看这个动作的历史趋势", systemImage: "chart.xyaxis.line")
+                    if setsForExercise(name).contains(where: { !isSkipped($0) }) {
+                        NavigationLink {
+                            ExerciseHistoryView(exerciseName: name)
+                        } label: {
+                            Label("查看这个动作的历史趋势", systemImage: "chart.xyaxis.line")
+                        }
                     }
                 }
             }
@@ -62,6 +67,13 @@ struct WorkoutHistoryDetailView: View {
     private var exerciseNames: [String] {
         var seen = Set<String>()
         return sets.compactMap { $0.value(forKey: "exerciseName") as? String }.filter { seen.insert($0).inserted }
+    }
+
+    private var completedSets: [NSManagedObject] { sets.filter { !isSkipped($0) } }
+    private var skippedSets: [NSManagedObject] { sets.filter { isSkipped($0) } }
+
+    private func isSkipped(_ set: NSManagedObject) -> Bool {
+        (set.value(forKey: "isSkipped") as? NSNumber)?.boolValue ?? false
     }
 
     private func setsForExercise(_ name: String) -> [NSManagedObject] {
@@ -90,7 +102,7 @@ struct ExerciseHistoryView: View {
     init(exerciseName: String) {
         self.exerciseName = exerciseName
         let request = NSFetchRequest<NSManagedObject>(entityName: "PerformedSetEntity")
-        request.predicate = NSPredicate(format: "exerciseName == %@", exerciseName)
+        request.predicate = NSPredicate(format: "exerciseName == %@ AND isSkipped == NO", exerciseName)
         request.sortDescriptors = [NSSortDescriptor(key: "completedAt", ascending: false)]
         _sets = FetchRequest(fetchRequest: request, animation: .default)
     }

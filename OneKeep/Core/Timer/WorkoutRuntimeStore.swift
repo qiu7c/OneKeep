@@ -4,6 +4,7 @@ struct WorkoutRuntimeSnapshot: Codable {
     let stepIndex: Int
     let timerPurpose: String
     let pendingRestSeconds: Int
+    let actionExtensionSeconds: Int?
     let timer: WorkoutTimerStore.Snapshot
 }
 

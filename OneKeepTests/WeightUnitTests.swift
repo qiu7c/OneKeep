@@ -15,6 +15,11 @@ final class WeightUnitTests: XCTestCase {
         let preferences = try JSONDecoder().decode(WorkoutPreferences.self, from: data)
         XCTAssertEqual(preferences.weightUnit, .kilograms)
         XCTAssertFalse(preferences.timerNotifications)
+        XCTAssertTrue(preferences.voicePrompts)
+        XCTAssertTrue(preferences.automaticWorkoutFlow)
+        XCTAssertEqual(preferences.voiceVolume, 1)
+        XCTAssertFalse(preferences.muteExerciseVideos)
+        XCTAssertFalse(preferences.wifiOnlyVideo)
     }
 
     func testSelectedUnitIsIncludedInPreferencesBackupPayload() throws {
