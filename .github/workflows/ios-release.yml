@@ -44,12 +44,14 @@ jobs:
 
       - name: Package TrollStore IPA
         run: |
+          SAFE_REF_NAME="${GITHUB_REF_NAME//\//-}"
+          IPA_NAME="OneKeep-${SAFE_REF_NAME}-${GITHUB_RUN_NUMBER}-trollstore.ipa"
           mkdir -p "$RUNNER_TEMP/Payload"
           cp -R "$RUNNER_TEMP/OneKeep.xcarchive/Products/Applications/OneKeep.app" "$RUNNER_TEMP/Payload/"
           codesign --force --sign - "$RUNNER_TEMP/Payload/OneKeep.app"
           cd "$RUNNER_TEMP"
-          zip -qry "OneKeep-${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}-trollstore.ipa" Payload
-          cp "OneKeep-${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}-trollstore.ipa" "$GITHUB_WORKSPACE/"
+          zip -qry "$IPA_NAME" Payload
+          cp "$IPA_NAME" "$GITHUB_WORKSPACE/"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
