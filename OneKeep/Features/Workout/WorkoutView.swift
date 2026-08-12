@@ -966,9 +966,9 @@ struct WorkoutView: View {
         setRequest.predicate = NSPredicate(format: "sessionID == %@", sessionID as NSUUID)
         let recordedSets = try managedObjectContext.fetch(setRequest)
         let skipped = recordedSets.filter { ($0.value(forKey: "isSkipped") as? NSNumber)?.boolValue ?? false }
-        let weights = recordedSets.compactMap {
-            guard !(($0.value(forKey: "isSkipped") as? NSNumber)?.boolValue ?? false) else { return nil }
-            return ($0.value(forKey: "weightKilograms") as? NSNumber)?.doubleValue
+        let weights: [Double] = recordedSets.compactMap { set -> Double? in
+            guard !((set.value(forKey: "isSkipped") as? NSNumber)?.boolValue ?? false) else { return nil }
+            return (set.value(forKey: "weightKilograms") as? NSNumber)?.doubleValue
         }
 
         let sessionRequest = NSFetchRequest<NSManagedObject>(entityName: "WorkoutSessionEntity")
