@@ -33,7 +33,9 @@ struct TodayView: View {
                         unavailableWorkoutCard(activeSession)
                     }
                 }
-                todayWorkout
+                if !isTodayWorkoutActive {
+                    todayWorkout
+                }
                 quickWorkoutCard
                 weeklyProgress
             }
@@ -53,11 +55,11 @@ struct TodayView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(Date.now, format: .dateTime.month().day().weekday(.wide))
+            Text(Self.dateFormatter.string(from: .now))
                 .font(.subheadline)
                 .foregroundStyle(OKColor.secondaryText)
 
-            Text("准备好就开始")
+            Text(activeSession == nil ? "准备好就开始" : "训练正在进行")
                 .font(.system(size: 30, weight: .bold, design: .rounded))
         }
     }
@@ -158,6 +160,15 @@ struct TodayView: View {
         let completedSets: Int
     }
 
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "zh_CN")
+        formatter.calendar = .current
+        formatter.timeZone = .current
+        formatter.dateFormat = "M月d日 EEEE"
+        return formatter
+    }()
+
     private var activeSession: ActiveSession? {
         guard let object = sessionObjects.first(where: {
             ($0.value(forKey: "status") as? String) == WorkoutSessionRepository.Status.active.rawValue
@@ -175,18 +186,42 @@ struct TodayView: View {
         )
     }
 
+    private var isTodayWorkoutActive: Bool {
+        guard let activeSession, let todayItem else { return false }
+        return activeSession.trainingDayID == todayItem.day.id
+    }
+
     private func trainingDay(id: UUID) -> TrainingDay? {
         planLibrary.plans.lazy.flatMap(\.days).first { $0.id == id }
     }
 
     private func continueWorkoutCard(_ session: ActiveSession, day: TrainingDay) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Label("有一项训练尚未完成", systemImage: "arrow.clockwise.circle")
-                .font(.headline)
-            Text(session.title)
-                .font(.title3.bold())
-            Text("已完成 \(session.completedSets) 组 · 开始于 \(session.startedAt.formatted(date: .omitted, time: .shortened))")
-                .font(.subheadline)
+        let totalSets = WorkoutExecutionPlan.makeSteps(from: day).count
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "figure.run")
+                    .font(.title2)
+                    .frame(width: 30)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("训练进行中")
+                        .font(.headline)
+                    Text(session.title)
+                        .font(.title3.bold())
+                }
+                Spacer()
+                Text("\(min(session.completedSets, totalSets)) / \(totalSets)")
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(OKColor.secondaryText)
+            }
+
+            ProgressView(
+                value: Double(min(session.completedSets, totalSets)),
+                total: Double(max(1, totalSets))
+            )
+            .tint(OKColor.accent)
+
+            Text("开始于 \(session.startedAt.formatted(date: .omitted, time: .shortened)) · 进度已自动保存在本机")
+                .font(.footnote)
                 .foregroundStyle(OKColor.secondaryText)
             NavigationLink {
                 WorkoutView(
@@ -195,7 +230,7 @@ struct TodayView: View {
                     completedStepCount: session.completedSets
                 )
             } label: {
-                Label("继续训练", systemImage: "play.fill")
+                Label("返回训练", systemImage: "play.fill")
             }
             .buttonStyle(OKPrimaryButtonStyle())
         }

@@ -188,6 +188,7 @@ private struct ExerciseLibraryDetailView: View {
                         }
                         Label("休息 \(item.defaultRestSeconds) 秒", systemImage: "pause")
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .okCard()
 
                     if let safety = item.safetyNotes, !safety.isEmpty {

@@ -95,6 +95,7 @@ private final class BilibiliPlayerModel: ObservableObject {
             guard !Task.isCancelled else { return }
             player.replaceCurrentItem(with: item)
             isReady = true
+            VideoAudioSession.activate()
             player.play()
         } catch is CancellationError {
             hasLoaded = false
@@ -191,6 +192,18 @@ private struct NativePlayerController: UIViewControllerRepresentable {
     }
 }
 
+private enum VideoAudioSession {
+    static func activate() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .moviePlayback)
+            try session.setActive(true)
+        } catch {
+            // AVPlayer can still play when another app temporarily owns the audio route.
+        }
+    }
+}
+
 private struct WebVideoPlayer: View {
     let url: URL
     @State private var isLoading = true
@@ -242,6 +255,7 @@ private struct NativeVideoPlayer: View {
             .task(id: url) {
                 let playbackURL = await ExerciseVideoOfflineStore.shared.localURL(for: url) ?? url
                 player.replaceCurrentItem(with: AVPlayerItem(url: playbackURL))
+                VideoAudioSession.activate()
                 player.play()
             }
             .onDisappear {
