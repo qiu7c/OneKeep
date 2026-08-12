@@ -1,0 +1,24 @@
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+*.xccheckout
+*.moved-aside
+
+# XcodeGen output is generated in CI
+OneKeep.xcodeproj/
+
+# SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Signing and archives
+*.ipa
+*.xcarchive
+*.p12
+*.mobileprovision
+
+# macOS
+.DS_Store

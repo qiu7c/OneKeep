@@ -1,0 +1,54 @@
+name: OneKeep
+options:
+  bundleIdPrefix: com.onekeep
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "16.0"
+    TARGETED_DEVICE_FAMILY: "1"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  OneKeep:
+    type: application
+    platform: iOS
+    sources:
+      - path: OneKeep
+    info:
+      path: OneKeep/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: OneKeep
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.onekeep.app
+        PRODUCT_NAME: OneKeep
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+  OneKeepTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: OneKeepTests
+    dependencies:
+      - target: OneKeep
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.onekeep.app.tests
+schemes:
+  OneKeep:
+    build:
+      targets:
+        OneKeep: all
+        OneKeepTests: [test]
+    test:
+      gatherCoverageData: true
+      targets:
+        - OneKeepTests

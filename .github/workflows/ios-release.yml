@@ -1,0 +1,61 @@
+name: Build TrollStore IPA
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        run: sudo xcode-select -s /Applications/Xcode_16.4.app
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Archive unsigned app
+        run: |
+          xcodebuild archive \
+            -project OneKeep.xcodeproj \
+            -scheme OneKeep \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/OneKeep.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CURRENT_PROJECT_VERSION="${GITHUB_RUN_NUMBER}"
+
+      - name: Package TrollStore IPA
+        run: |
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$RUNNER_TEMP/OneKeep.xcarchive/Products/Applications/OneKeep.app" "$RUNNER_TEMP/Payload/"
+          codesign --force --sign - "$RUNNER_TEMP/Payload/OneKeep.app"
+          cd "$RUNNER_TEMP"
+          zip -qry "OneKeep-${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}-trollstore.ipa" Payload
+          cp "OneKeep-${GITHUB_REF_NAME}-${GITHUB_RUN_NUMBER}-trollstore.ipa" "$GITHUB_WORKSPACE/"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OneKeep-TrollStore-IPA
+          path: OneKeep-*-trollstore.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" OneKeep-*-trollstore.ipa --generate-notes --verify-tag

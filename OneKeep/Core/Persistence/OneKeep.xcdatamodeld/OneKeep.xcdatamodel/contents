@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<model type="com.apple.IDECoreDataModeler.DataModel" documentVersion="1.0" lastSavedToolsVersion="23507" systemVersion="24A335" minimumToolsVersion="Automatic" sourceLanguage="Swift" userDefinedModelVersionIdentifier="">
+    <entity name="TrainingPlanEntity" representedClassName="TrainingPlanEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="endDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="payload" optional="NO" attributeType="Binary"/>
+        <attribute name="startDate" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="title" optional="NO" attributeType="String"/>
+        <attribute name="updatedAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+    </entity>
+    <entity name="WorkoutSessionEntity" representedClassName="WorkoutSessionEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="endedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="startedAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="status" optional="NO" attributeType="String"/>
+        <attribute name="title" optional="NO" attributeType="String"/>
+        <attribute name="trainingDayID" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="updatedAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+    </entity>
+    <entity name="PerformedSetEntity" representedClassName="PerformedSetEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="completedAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="durationSeconds" optional="YES" attributeType="Integer 64" usesScalarValueType="YES"/>
+        <attribute name="exerciseID" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="exerciseName" optional="NO" attributeType="String"/>
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="plannedWeightKilograms" optional="YES" attributeType="Double" usesScalarValueType="YES"/>
+        <attribute name="repetitions" optional="YES" attributeType="Integer 64" usesScalarValueType="YES"/>
+        <attribute name="sessionID" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="setIndex" optional="NO" attributeType="Integer 64" usesScalarValueType="YES"/>
+        <attribute name="stepIndex" optional="NO" attributeType="Integer 64" usesScalarValueType="YES"/>
+        <attribute name="weightKilograms" optional="YES" attributeType="Double" usesScalarValueType="YES"/>
+    </entity>
+    <entity name="QuickLogEntity" representedClassName="QuickLogEntity" syncable="YES" codeGenerationType="class">
+        <attribute name="createdAt" optional="NO" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="id" optional="NO" attributeType="UUID" usesScalarValueType="NO"/>
+        <attribute name="kind" optional="NO" attributeType="String"/>
+        <attribute name="note" optional="YES" attributeType="String"/>
+        <attribute name="value" optional="YES" attributeType="Double" usesScalarValueType="YES"/>
+    </entity>
+</model>
