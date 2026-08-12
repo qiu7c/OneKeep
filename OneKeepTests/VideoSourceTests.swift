@@ -37,6 +37,11 @@ final class VideoSourceTests: XCTestCase {
         XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "p" }?.value, "2")
     }
 
+    func testRecognizesBilibiliShortLinkAsBilibiliSource() throws {
+        let source = try XCTUnwrap(VideoSource(urlString: "https://b23.tv/example"))
+        XCTAssertTrue(VideoSource.isBilibiliURL(source.playbackURL))
+    }
+
     func testRejectsNonHTTPURL() {
         XCTAssertNil(VideoSource(urlString: "file:///private/video.mp4"))
     }

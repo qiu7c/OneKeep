@@ -119,16 +119,7 @@ actor ExerciseVideoHealthService {
                 return unavailable(url, "视频分集已失效")
             }
             let displayTitle = value.pages?.first(where: { $0.page == requestedPage })?.part ?? value.title
-            if let playerURL = VideoSource(urlString: url.absoluteString)?.playbackURL {
-                var playerRequest = URLRequest(url: playerURL)
-                playerRequest.timeoutInterval = 15
-                playerRequest.setValue("OneKeep/1.0", forHTTPHeaderField: "User-Agent")
-                let (_, playerResponse) = try await URLSession.shared.data(for: playerRequest)
-                guard let playerHTTP = playerResponse as? HTTPURLResponse,
-                      (200...399).contains(playerHTTP.statusCode) else {
-                    return unavailable(url, "移动播放页当前不可访问")
-                }
-            }
+            _ = try await BilibiliPlaybackResolver.shared.resolve(url)
             return ExerciseVideoHealthRecord(
                 url: url, status: .available, checkedAt: .now, title: displayTitle,
                 author: value.owner?.name, thumbnailURL: secureURL(value.pic), message: nil

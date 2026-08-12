@@ -1,7 +1,33 @@
+import Foundation
 import XCTest
 @testable import OneKeep
 
 final class AIPlanImportServiceTests: XCTestCase {
+    func testRetriesEmptyJSONResponseWithoutJSONMode() async throws {
+        var requestCount = 0
+        TestURLProtocol.handler = { request in
+            requestCount += 1
+            let content = requestCount == 1 ? "" : """
+            {"title":"重试计划","startDate":"2026-08-12","endDate":null,"days":[{"title":"训练日","scheduleKind":"specificDate","anchorDate":"2026-08-12","weekdays":[],"blocks":[{"title":"训练","kind":"standard","rounds":1,"exercises":[{"name":"平板支撑","sets":1,"durationSeconds":30,"trackingMode":"countdown"}]}]}]}
+            """
+            let data = try JSONSerialization.data(withJSONObject: [
+                "model": "test-model",
+                "choices": [["message": ["content": content], "finish_reason": "stop"]]
+            ])
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        defer { TestURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TestURLProtocol.self]
+        let service = AIPlanImportService(client: OpenAICompatibleClient(session: URLSession(configuration: configuration)))
+        let provider = AIProviderConfiguration(baseURL: "https://api.example.com/v1", model: "test", usesJSONMode: true)
+
+        let plan = try await service.importPlan(sourceText: "生成计划", provider: provider, apiKey: "key")
+
+        XCTAssertEqual(plan.title, "重试计划")
+        XCTAssertEqual(requestCount, 2)
+    }
+
     func testParsesMarkdownWrappedPlanJSON() throws {
         let json = """
         ```json

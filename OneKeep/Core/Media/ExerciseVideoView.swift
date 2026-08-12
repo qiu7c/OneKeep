@@ -11,7 +11,11 @@ struct ExerciseVideoView: View {
             case .native(let url):
                 NativeVideoPlayer(url: url)
             case .web(let url):
-                WebVideoPlayer(url: url)
+                if VideoSource.isBilibiliURL(url) {
+                    BilibiliNativeVideoPlayer(url: url)
+                } else {
+                    WebVideoPlayer(url: url)
+                }
             }
         }
         .aspectRatio(16 / 9, contentMode: .fit)
@@ -19,7 +23,171 @@ struct ExerciseVideoView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(OKColor.border, lineWidth: 0.5)
+                .allowsHitTesting(false)
         }
+    }
+}
+
+private struct BilibiliNativeVideoPlayer: View {
+    let url: URL
+    @StateObject private var model: BilibiliPlayerModel
+
+    init(url: URL) {
+        self.url = url
+        _model = StateObject(wrappedValue: BilibiliPlayerModel(pageURL: url))
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if model.isReady {
+                NativePlayerController(player: model.player)
+            } else if let errorMessage = model.errorMessage {
+                VStack(spacing: 11) {
+                    Image(systemName: "exclamationmark.circle")
+                    Text(errorMessage).font(.caption).multilineTextAlignment(.center)
+                    HStack(spacing: 16) {
+                        Button("重试") { Task { await model.load(force: true) } }
+                        Link("网页备用", destination: url)
+                    }
+                    .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(16)
+            } else {
+                VStack(spacing: 9) {
+                    ProgressView().tint(.white)
+                    Text("正在获取原生视频流…").font(.caption)
+                }
+                .foregroundStyle(.white.opacity(0.8))
+            }
+        }
+        .task(id: url) { await model.load() }
+        .onDisappear { model.player.pause() }
+    }
+}
+
+@MainActor
+private final class BilibiliPlayerModel: ObservableObject {
+    @Published private(set) var isReady = false
+    @Published private(set) var errorMessage: String?
+    let player = AVPlayer()
+
+    private let pageURL: URL
+    private var hasLoaded = false
+
+    init(pageURL: URL) {
+        self.pageURL = pageURL
+    }
+
+    func load(force: Bool = false) async {
+        guard force || !hasLoaded else { return }
+        hasLoaded = true
+        isReady = false
+        errorMessage = nil
+        player.pause()
+        do {
+            let source = try await BilibiliPlaybackResolver.shared.resolve(pageURL)
+            let item = try await Self.makeItem(source)
+            guard try await item.asset.load(.isPlayable) else {
+                throw BilibiliPlaybackResolver.ResolverError.noPlayableStream
+            }
+            guard !Task.isCancelled else { return }
+            player.replaceCurrentItem(with: item)
+            isReady = true
+            player.play()
+        } catch is CancellationError {
+            hasLoaded = false
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private static func makeItem(_ source: BilibiliPlaybackSource) async throws -> AVPlayerItem {
+        switch source.stream {
+        case .progressive(let urls):
+            guard let first = urls.first else { throw BilibiliPlaybackResolver.ResolverError.noPlayableStream }
+            if urls.count == 1 {
+                return AVPlayerItem(asset: asset(url: first, headers: source.headers))
+            }
+            let assets = urls.map { asset(url: $0, headers: source.headers) }
+            return AVPlayerItem(asset: try await concatenate(assets))
+
+        case .dash(let videoURL, let audioURL):
+            let videoAsset = asset(url: videoURL, headers: source.headers)
+            guard let audioURL else { return AVPlayerItem(asset: videoAsset) }
+            return AVPlayerItem(asset: try await combine(
+                video: videoAsset,
+                audio: asset(url: audioURL, headers: source.headers)
+            ))
+        }
+    }
+
+    private static func asset(url: URL, headers: [String: String]) -> AVURLAsset {
+        AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
+    }
+
+    private static func concatenate(_ assets: [AVURLAsset]) async throws -> AVMutableComposition {
+        let composition = AVMutableComposition()
+        guard let videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw BilibiliPlaybackResolver.ResolverError.noPlayableStream
+        }
+        let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+        var cursor = CMTime.zero
+        for asset in assets {
+            let videoTracks = try await asset.loadTracks(withMediaType: .video)
+            let audioTracks = try await asset.loadTracks(withMediaType: .audio)
+            let duration = try await asset.load(.duration)
+            guard let sourceVideo = videoTracks.first, duration.isNumeric else {
+                throw BilibiliPlaybackResolver.ResolverError.noPlayableStream
+            }
+            try videoTrack.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: sourceVideo, at: cursor)
+            if let sourceAudio = audioTracks.first {
+                try audioTrack?.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: sourceAudio, at: cursor)
+            }
+            cursor = CMTimeAdd(cursor, duration)
+        }
+        return composition
+    }
+
+    private static func combine(video: AVURLAsset, audio: AVURLAsset) async throws -> AVMutableComposition {
+        let videoTracks = try await video.loadTracks(withMediaType: .video)
+        let audioTracks = try await audio.loadTracks(withMediaType: .audio)
+        let videoDuration = try await video.load(.duration)
+        let audioDuration = try await audio.load(.duration)
+        guard let sourceVideo = videoTracks.first, let sourceAudio = audioTracks.first,
+              videoDuration.isNumeric, audioDuration.isNumeric else {
+            throw BilibiliPlaybackResolver.ResolverError.noPlayableStream
+        }
+        let composition = AVMutableComposition()
+        guard let videoTrack = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
+              let audioTrack = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else {
+            throw BilibiliPlaybackResolver.ResolverError.noPlayableStream
+        }
+        let duration = CMTimeCompare(videoDuration, audioDuration) <= 0 ? videoDuration : audioDuration
+        try videoTrack.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: sourceVideo, at: .zero)
+        try audioTrack.insertTimeRange(CMTimeRange(start: .zero, duration: duration), of: sourceAudio, at: .zero)
+        return composition
+    }
+}
+
+private struct NativePlayerController: UIViewControllerRepresentable {
+    let player: AVPlayer
+
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
+        let controller = AVPlayerViewController()
+        controller.player = player
+        controller.showsPlaybackControls = true
+        controller.videoGravity = .resizeAspect
+        controller.allowsPictureInPicturePlayback = true
+        controller.entersFullScreenWhenPlaybackBegins = false
+        controller.exitsFullScreenWhenPlaybackEnds = false
+        controller.view.backgroundColor = .black
+        return controller
+    }
+
+    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
+        if controller.player !== player { controller.player = player }
     }
 }
 
@@ -36,7 +204,7 @@ private struct WebVideoPlayer: View {
             if isLoading {
                 VStack(spacing: 8) {
                     ProgressView()
-                    Text("正在加载移动播放页…")
+                    Text("正在加载在线视频…")
                         .font(.caption)
                         .foregroundStyle(OKColor.secondaryText)
                 }
@@ -70,10 +238,11 @@ private struct NativeVideoPlayer: View {
     }
 
     var body: some View {
-        VideoPlayer(player: player)
+        NativePlayerController(player: player)
             .task(id: url) {
                 let playbackURL = await ExerciseVideoOfflineStore.shared.localURL(for: url) ?? url
                 player.replaceCurrentItem(with: AVPlayerItem(url: playbackURL))
+                player.play()
             }
             .onDisappear {
                 player.pause()

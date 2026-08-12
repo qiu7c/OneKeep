@@ -15,6 +15,18 @@ struct AIPlanImportView: View {
         }
     }
 
+    private enum FailedAction: Equatable {
+        case chat(String)
+        case generatePlan
+
+        var buttonTitle: String {
+            switch self {
+            case .chat: return "重新发送"
+            case .generatePlan: return "重新生成计划预览"
+            }
+        }
+    }
+
     @EnvironmentObject private var planLibrary: PlanLibraryStore
     @Environment(\.dismiss) private var dismiss
 
@@ -25,6 +37,7 @@ struct AIPlanImportView: View {
     @State private var errorMessage: String?
     @State private var provider = AIProviderPreferences.load()
     @State private var includesProfile = false
+    @State private var failedAction: FailedAction?
     @FocusState private var isComposerFocused: Bool
 
     private let keyStore = KeychainAPIKeyStore()
@@ -62,8 +75,9 @@ struct AIPlanImportView: View {
                                 .font(.headline)
                             Text(errorMessage)
                                 .font(.footnote)
-                            Button("重新发送") { sendMessage() }
-                                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            if let failedAction {
+                                Button(failedAction.buttonTitle, action: retryFailedAction)
+                            }
                         }
                         .foregroundStyle(.red)
                         .okCard()
@@ -271,6 +285,7 @@ struct AIPlanImportView: View {
         isComposerFocused = false
         draft = ""
         errorMessage = nil
+        failedAction = nil
         generatedPlan = nil
         messages.append(AIChatMessage(role: .user, content: content))
         persistMessages()
@@ -291,6 +306,7 @@ struct AIPlanImportView: View {
             } catch {
                 errorMessage = error.localizedDescription
                 draft = content
+                failedAction = .chat(content)
             }
         }
     }
@@ -299,6 +315,7 @@ struct AIPlanImportView: View {
         guard !messages.isEmpty, requestState == .idle else { return }
         isComposerFocused = false
         errorMessage = nil
+        failedAction = nil
         requestState = .generating
         Task {
             defer { requestState = .idle }
@@ -311,7 +328,19 @@ struct AIPlanImportView: View {
                 )
             } catch {
                 errorMessage = error.localizedDescription
+                failedAction = .generatePlan
             }
+        }
+    }
+
+    private func retryFailedAction() {
+        guard requestState == .idle, let failedAction else { return }
+        switch failedAction {
+        case .chat(let content):
+            draft = content
+            sendMessage()
+        case .generatePlan:
+            generatePlan()
         }
     }
 
@@ -335,6 +364,7 @@ struct AIPlanImportView: View {
         draft = ""
         generatedPlan = nil
         errorMessage = nil
+        failedAction = nil
         AIConversationPreferences.clear()
     }
 }

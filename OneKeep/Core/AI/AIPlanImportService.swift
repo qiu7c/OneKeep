@@ -8,6 +8,7 @@ struct AIPlanImportService {
         case invalidBlockKind(String)
         case invalidTrackingMode(String)
         case invalidWeekday(Int)
+        case emptyResponseAfterRetries
 
         var errorDescription: String? {
             switch self {
@@ -17,6 +18,7 @@ struct AIPlanImportService {
             case .invalidBlockKind(let value): return "无法识别训练阶段：\(value)"
             case .invalidTrackingMode(let value): return "无法识别动作记录方式：\(value)"
             case .invalidWeekday(let value): return "星期值必须在 1 到 7 之间：\(value)"
+            case .emptyResponseAfterRetries: return "AI 服务连续返回空内容，OneKeep 已自动切换请求模式重试。请确认当前模型支持聊天补全后再试"
             }
         }
     }
@@ -48,7 +50,7 @@ struct AIPlanImportService {
             "\(message.role == .user ? "用户" : "助手")：\(message.content)"
         }.joined(separator: "\n\n")
         let messages: [OpenAICompatibleClient.Message] = [
-            .init(role: "system", content: provider.effectivePrompt),
+            .init(role: "system", content: Self.recommendedPrompt),
             .init(role: "system", content: AIRequestContext.currentDateMessage()),
             .init(role: "user", content: "根据以下完整对话，把用户原始计划和用户明确确认的修改整理成最终计划 JSON。助手尚未被用户确认的建议不得写入。\n\n\(transcript)")
         ]
@@ -58,15 +60,11 @@ struct AIPlanImportService {
             apiKey: apiKey,
             usesJSONMode: provider.usesJSONMode
         )
-        let content: String
-        do {
-            content = try await client.completeContinuing(configuration: configuration, messages: messages).content
-        } catch OpenAICompatibleClient.ClientError.missingContent where provider.usesJSONMode {
-            // DeepSeek documents that JSON mode may occasionally return empty content.
-            content = try await client.completeContinuing(
-                configuration: configuration, messages: messages, forceJSONMode: false
-            ).content
-        }
+        let content = try await requestPlanContent(
+            configuration: configuration,
+            messages: messages,
+            preferredJSONMode: provider.usesJSONMode
+        )
         do {
             return try linkToExerciseLibrary(Self.parse(content))
         } catch {
@@ -74,10 +72,61 @@ struct AIPlanImportService {
                 .init(role: "assistant", content: content),
                 .init(role: "user", content: "上一个 JSON 无法被应用解析。请只修复格式和缺失字段，不改变计划内容；严格返回一个符合系统结构的 JSON 对象。")
             ]
-            let repaired = try await client.completeContinuing(
-                configuration: configuration, messages: repairMessages, forceJSONMode: provider.usesJSONMode
-            ).content
+            let repaired = try await requestPlanContent(
+                configuration: configuration,
+                messages: repairMessages,
+                preferredJSONMode: provider.usesJSONMode
+            )
             return try linkToExerciseLibrary(Self.parse(repaired))
+        }
+    }
+
+    private func requestPlanContent(
+        configuration: OpenAICompatibleClient.Configuration,
+        messages: [OpenAICompatibleClient.Message],
+        preferredJSONMode: Bool
+    ) async throws -> String {
+        let modes = preferredJSONMode ? [true, false, false] : [false, true, false]
+        var lastError: Error = OpenAICompatibleClient.ClientError.missingContent
+
+        for (attempt, jsonMode) in modes.enumerated() {
+            var requestMessages = messages
+            if attempt > 0 {
+                requestMessages.append(.init(
+                    role: "user",
+                    content: "上一次请求没有返回可用内容。请立即输出完整、单行、紧凑的计划 JSON；不要分析，不要解释，不要使用 Markdown。"
+                ))
+            }
+            do {
+                return try await client.completeContinuing(
+                    configuration: configuration,
+                    messages: requestMessages,
+                    forceJSONMode: jsonMode,
+                    acceptReasoningContentFallback: true,
+                    timeout: 120
+                ).content
+            } catch {
+                lastError = error
+                guard Self.shouldRetryGeneration(error) else { throw error }
+            }
+        }
+
+        if let clientError = lastError as? OpenAICompatibleClient.ClientError,
+           clientError == .missingContent {
+            throw ImportError.emptyResponseAfterRetries
+        }
+        throw lastError
+    }
+
+    private static func shouldRetryGeneration(_ error: Error) -> Bool {
+        guard let clientError = error as? OpenAICompatibleClient.ClientError else { return false }
+        switch clientError {
+        case .missingContent, .truncated, .invalidResponse:
+            return true
+        case .requestFailed(let status, _):
+            return status == 400 || status == 422
+        default:
+            return false
         }
     }
 
@@ -176,7 +225,7 @@ struct AIPlanImportService {
     如果原文缺少日期、组数、休息或记录方式，不要猜测危险参数；使用最保守的结构值，并在 notes 中写明“建议用户确认”。
     保留用户写出的动作要点、左右侧、次数区间、重量、动作时长、组间休息、动作间休息和轮间休息。
     识别热身、普通训练、间歇、循环和拉伸阶段。相同动作出现在不同阶段时不要合并。
-    动作必须优先从随后提供的完整动作库 JSON 索引中选择，同时返回规范名称和 libraryID。无法确定唯一动作时保留用户原名并将 libraryID 设为 null。
+    能确定规范动作时可以返回 libraryID；不确定时保留用户原名并将 libraryID 设为 null。OneKeep 会在本地再次匹配动作库，禁止猜测 ID。
     只返回一个单行紧凑 JSON 对象，不要返回 Markdown、解释、空白缩进或重复字段。字段必须符合以下结构：
     {
       "title": "计划名称",

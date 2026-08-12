@@ -69,6 +69,11 @@ enum VideoSource: Equatable {
         return url.pathComponents.first(where: { $0.uppercased().hasPrefix("BV") })
     }
 
+    static func isBilibiliURL(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        return host.hasSuffix("bilibili.com") || host == "b23.tv" || host.hasSuffix(".b23.tv")
+    }
+
     private static func bilibiliMobileURL(from url: URL) -> URL? {
         guard let bvid = bilibiliVideoID(from: url) else { return nil }
         let page = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "p" }?.value

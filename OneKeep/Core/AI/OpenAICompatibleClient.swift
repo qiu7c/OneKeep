@@ -52,7 +52,7 @@ struct OpenAICompatibleClient {
             case .timedOut: return "连接超时，请检查网络、Base URL 或服务状态"
             case .network(let message): return "网络连接失败：\(message)"
             case .requestFailed(let status, let message): return "AI 请求失败（HTTP \(status)）：\(message)"
-            case .missingContent: return "AI 返回了空内容。DeepSeek 的 JSON 模式偶尔会出现此问题"
+            case .missingContent: return "AI 服务返回了空内容"
             case .truncated: return "AI 多次自动续写后仍未完成，请缩短对话或更换支持更长输出的模型"
             }
         }
@@ -68,6 +68,7 @@ struct OpenAICompatibleClient {
         configuration: Configuration,
         messages: [Message],
         forceJSONMode: Bool? = nil,
+        acceptReasoningContentFallback: Bool = false,
         timeout: TimeInterval = 90
     ) async throws -> CompletionResult {
         try validate(configuration)
@@ -110,7 +111,12 @@ struct OpenAICompatibleClient {
             throw ClientError.invalidResponse
         }
         guard let choice = completion.choices.first else { throw ClientError.missingContent }
-        guard let content = choice.message.content?.trimmingCharacters(in: .whitespacesAndNewlines), !content.isEmpty else {
+        let directContent = choice.message.content?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reasoningContent = choice.message.reasoningContent?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let selectedContent = directContent?.isEmpty == false
+            ? directContent
+            : (acceptReasoningContentFallback && reasoningContent?.contains("{") == true ? reasoningContent : nil)
+        guard let content = selectedContent, !content.isEmpty else {
             throw ClientError.missingContent
         }
         return CompletionResult(content: content, model: completion.model, finishReason: choice.finishReason)
@@ -120,6 +126,7 @@ struct OpenAICompatibleClient {
         configuration: Configuration,
         messages: [Message],
         forceJSONMode: Bool? = nil,
+        acceptReasoningContentFallback: Bool = false,
         timeout: TimeInterval = 90,
         maximumContinuations: Int = 4
     ) async throws -> CompletionResult {
@@ -127,6 +134,7 @@ struct OpenAICompatibleClient {
             configuration: configuration,
             messages: messages,
             forceJSONMode: forceJSONMode,
+            acceptReasoningContentFallback: acceptReasoningContentFallback,
             timeout: timeout
         )
         guard result.finishReason == "length" else { return result }
@@ -145,6 +153,7 @@ struct OpenAICompatibleClient {
                 configuration: configuration,
                 messages: continuationMessages,
                 forceJSONMode: false,
+                acceptReasoningContentFallback: acceptReasoningContentFallback,
                 timeout: timeout
             )
             combined = Self.join(prefix: combined, continuation: result.content)
@@ -288,7 +297,33 @@ private struct ChatRequest: Encodable {
 
 private struct ChatResponse: Decodable {
     struct Choice: Decodable {
-        struct Message: Decodable { let content: String? }
+        struct Message: Decodable {
+            struct ContentPart: Decodable {
+                let type: String?
+                let text: String?
+                let content: String?
+            }
+
+            let content: String?
+            let reasoningContent: String?
+
+            enum CodingKeys: String, CodingKey {
+                case content
+                case reasoningContent = "reasoning_content"
+            }
+
+            init(from decoder: Decoder) throws {
+                let values = try decoder.container(keyedBy: CodingKeys.self)
+                if let text = try? values.decode(String.self, forKey: .content) {
+                    content = text
+                } else if let parts = try? values.decode([ContentPart].self, forKey: .content) {
+                    content = parts.compactMap { $0.text ?? $0.content }.joined()
+                } else {
+                    content = nil
+                }
+                reasoningContent = try? values.decode(String.self, forKey: .reasoningContent)
+            }
+        }
         let message: Message
         let finishReason: String?
         enum CodingKeys: String, CodingKey { case message; case finishReason = "finish_reason" }

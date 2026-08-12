@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 @testable import OneKeep
 
@@ -53,4 +54,77 @@ final class OpenAICompatibleClientTests: XCTestCase {
             "{\"title\":\"计划\"}"
         )
     }
+
+    func testDecodesArrayBasedMessageContent() async throws {
+        TestURLProtocol.handler = { request in
+            let data = try JSONSerialization.data(withJSONObject: [
+                "model": "test-model",
+                "choices": [[
+                    "message": ["content": [
+                        ["type": "text", "text": "前半段"],
+                        ["type": "text", "text": "后半段"]
+                    ]],
+                    "finish_reason": "stop"
+                ]]
+            ])
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        defer { TestURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TestURLProtocol.self]
+        let client = OpenAICompatibleClient(session: URLSession(configuration: configuration))
+
+        let result = try await client.complete(
+            configuration: .init(baseURL: "https://api.example.com/v1", model: "test", apiKey: "key", usesJSONMode: false),
+            messages: [.init(role: "user", content: "test")]
+        )
+
+        XCTAssertEqual(result.content, "前半段后半段")
+    }
+
+    func testCanUseJSONFromReasoningContentWhenFinalContentIsEmpty() async throws {
+        TestURLProtocol.handler = { request in
+            let data = try JSONSerialization.data(withJSONObject: [
+                "model": "test-model",
+                "choices": [[
+                    "message": ["content": NSNull(), "reasoning_content": "{\"title\":\"计划\"}"],
+                    "finish_reason": "stop"
+                ]]
+            ])
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, data)
+        }
+        defer { TestURLProtocol.handler = nil }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [TestURLProtocol.self]
+        let client = OpenAICompatibleClient(session: URLSession(configuration: configuration))
+
+        let result = try await client.complete(
+            configuration: .init(baseURL: "https://api.example.com/v1", model: "test", apiKey: "key", usesJSONMode: true),
+            messages: [.init(role: "user", content: "生成 JSON")],
+            acceptReasoningContentFallback: true
+        )
+
+        XCTAssertEqual(result.content, "{\"title\":\"计划\"}")
+    }
+}
+
+final class TestURLProtocol: URLProtocol {
+    static var handler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+    override func startLoading() {
+        do {
+            guard let handler = Self.handler else { throw URLError(.badServerResponse) }
+            let (response, data) = try handler(request)
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: data)
+            client?.urlProtocolDidFinishLoading(self)
+        } catch {
+            client?.urlProtocol(self, didFailWithError: error)
+        }
+    }
+
+    override func stopLoading() {}
 }
