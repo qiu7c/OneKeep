@@ -43,10 +43,10 @@ final class WorkoutSessionRepository {
         object.setValue(step.exercise.name, forKey: "exerciseName")
         object.setValue(Int64(stepIndex), forKey: "stepIndex")
         object.setValue(Int64(step.setIndex), forKey: "setIndex")
-        object.setValue(repetitions.map(Int64.init), forKey: "repetitions")
+        object.setValue(repetitions.map { Int64($0) }, forKey: "repetitions")
         object.setValue(step.exercise.plannedWeightKilograms, forKey: "plannedWeightKilograms")
         object.setValue(weightKilograms, forKey: "weightKilograms")
-        object.setValue(durationSeconds.map(Int64.init), forKey: "durationSeconds")
+        object.setValue(durationSeconds.map { Int64($0) }, forKey: "durationSeconds")
         object.setValue(date, forKey: "completedAt")
 
         if let session = try session(id: sessionID) {

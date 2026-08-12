@@ -6,12 +6,13 @@ enum ScheduleResolver {
         on date: Date,
         calendar: Calendar = .current
     ) -> [(plan: TrainingPlan, day: TrainingDay)] {
-        plans.flatMap { plan in
-            guard isWithinPlan(plan, date: date, calendar: calendar) else { return [] }
-            return plan.days.compactMap { day in
-                matches(day.recurrence, date: date, calendar: calendar) ? (plan, day) : nil
+        var result: [(plan: TrainingPlan, day: TrainingDay)] = []
+        for plan in plans where isWithinPlan(plan, date: date, calendar: calendar) {
+            for day in plan.days where matches(day.recurrence, date: date, calendar: calendar) {
+                result.append((plan: plan, day: day))
             }
         }
+        return result
     }
 
     static func matches(_ rule: ScheduleRule, date: Date, calendar: Calendar = .current) -> Bool {
