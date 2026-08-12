@@ -5,7 +5,6 @@ struct PlansView: View {
     @EnvironmentObject private var planLibrary: PlanLibraryStore
     @State private var showsImporter = false
     @State private var showsComposer = false
-    @State private var showsAIImporter = false
     @State private var exportedFile: ExportedFile?
 
     var body: some View {
@@ -38,11 +37,6 @@ struct PlansView: View {
         .sheet(isPresented: $showsComposer) {
             NavigationStack {
                 PlanComposerView()
-            }
-        }
-        .sheet(isPresented: $showsAIImporter) {
-            NavigationStack {
-                AIPlanImportView()
             }
         }
         .sheet(item: $exportedFile) { file in
@@ -131,12 +125,16 @@ struct PlansView: View {
             Text("导入计划")
                 .font(.headline)
 
-            importRow(title: "粘贴文本", detail: "粘贴后由 AI 整理并预览", icon: "doc.on.clipboard") {
-                showsAIImporter = true
+            NavigationLink {
+                AIPlanImportView()
+            } label: {
+                importLabel(
+                    title: "AI 计划助手",
+                    detail: "粘贴计划、多轮讨论、改善建议与导入",
+                    icon: "bubble.left.and.bubble.right"
+                )
             }
-            importRow(title: "使用 AI", detail: "连接兼容接口并预览", icon: "sparkles") {
-                showsAIImporter = true
-            }
+            .buttonStyle(.plain)
             importRow(title: "导入 JSON", detail: "打开 OneKeep 计划文件", icon: "arrow.down.doc") {
                 showsImporter = true
             }
@@ -151,24 +149,24 @@ struct PlansView: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: icon)
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(title)
-                        .foregroundStyle(.primary)
-                    Text(detail)
-                        .font(.footnote)
-                        .foregroundStyle(OKColor.secondaryText)
-                }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(OKColor.secondaryText)
-            }
-            .contentShape(Rectangle())
+            importLabel(title: title, detail: detail, icon: icon)
         }
         .buttonStyle(.plain)
+    }
+
+    private func importLabel(title: String, detail: String, icon: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon).frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).foregroundStyle(.primary)
+                Text(detail).font(.footnote).foregroundStyle(OKColor.secondaryText)
+            }
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(OKColor.secondaryText)
+        }
+        .contentShape(Rectangle())
     }
 
     private func planSummary(_ plan: TrainingPlan) -> String {

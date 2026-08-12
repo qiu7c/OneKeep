@@ -119,7 +119,7 @@ struct PlanComposerView: View {
     }
 }
 
-private struct WeekdayPicker: View {
+struct WeekdayPicker: View {
     @Binding var selection: Set<Int>
 
     private let weekdays: [(value: Int, title: String)] = [

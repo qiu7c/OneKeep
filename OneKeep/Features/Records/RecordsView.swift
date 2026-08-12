@@ -8,7 +8,6 @@ struct RecordsView: View {
 
     @State private var selectedQuickLogKind: QuickLogKind?
     @State private var showsProfile = false
-    @State private var showsAISettings = false
     @State private var profile = UserProfilePreferences.load()
 
     init() {
@@ -44,9 +43,6 @@ struct RecordsView: View {
         }
         .sheet(item: $selectedQuickLogKind) { kind in
             NavigationStack { QuickLogEditorView(kind: kind) }
-        }
-        .sheet(isPresented: $showsAISettings) {
-            NavigationStack { AISettingsView() }
         }
     }
 
@@ -162,9 +158,12 @@ struct RecordsView: View {
 
     private var settingsCard: some View {
         VStack(spacing: 0) {
-            settingsLink(title: "AI 接口与提示词", detail: "API Key 仅存钥匙串", icon: "slider.horizontal.3") {
-                showsAISettings = true
+            NavigationLink {
+                AISettingsView()
+            } label: {
+                settingsLabel(title: "AI 接口与提示词", detail: "支持连接测试，API Key 仅存钥匙串", icon: "slider.horizontal.3")
             }
+            .buttonStyle(.plain)
             Divider().padding(.leading, 42)
             NavigationLink {
                 BackupView()
@@ -174,11 +173,6 @@ struct RecordsView: View {
             .buttonStyle(.plain)
         }
         .okCard()
-    }
-
-    private func settingsLink(title: String, detail: String, icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { settingsLabel(title: title, detail: detail, icon: icon) }
-            .buttonStyle(.plain)
     }
 
     private func settingsLabel(title: String, detail: String, icon: String) -> some View {

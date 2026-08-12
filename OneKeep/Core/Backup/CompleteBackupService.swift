@@ -11,6 +11,7 @@ struct CompleteBackup: Codable {
     let sessions: [BackupWorkoutSession]
     let performedSets: [BackupPerformedSet]
     let quickLogs: [BackupQuickLog]
+    let chatHistory: [AIChatMessage]?
 }
 
 struct BackupWorkoutSession: Codable {
@@ -92,7 +93,8 @@ final class CompleteBackupService {
             plans: try CoreDataPlanRepository(context: context).fetchAll(),
             sessions: try fetchSessions(),
             performedSets: try fetchSets(),
-            quickLogs: try fetchQuickLogs()
+            quickLogs: try fetchQuickLogs(),
+            chatHistory: AIConversationPreferences.load()
         )
         let data = try encoder.encode(backup)
         let manifest = BackupManifest(
@@ -133,6 +135,7 @@ final class CompleteBackupService {
         } else {
             AIProviderPreferences.clear()
         }
+        AIConversationPreferences.save(backup.chatHistory ?? [])
     }
 
     private func replaceLocalData(with backup: CompleteBackup) throws {

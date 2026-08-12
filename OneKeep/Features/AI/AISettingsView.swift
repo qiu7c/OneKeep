@@ -8,12 +8,24 @@ struct AISettingsView: View {
     @State private var prompt = ""
     @State private var errorMessage: String?
     @State private var hasLoadedKey = false
+    @State private var isTesting = false
+    @State private var connectionMessage: String?
 
     private let keyStore = KeychainAPIKeyStore()
 
     var body: some View {
         Form {
             Section("服务") {
+                Button {
+                    provider.name = "DeepSeek"
+                    provider.baseURL = "https://api.deepseek.com"
+                    provider.model = "deepseek-chat"
+                    provider.usesJSONMode = true
+                    connectionMessage = nil
+                } label: {
+                    Label("使用 DeepSeek 推荐配置", systemImage: "wand.and.stars")
+                }
+
                 TextField("名称", text: $provider.name)
                 TextField("Base URL", text: $provider.baseURL)
                     .keyboardType(.URL)
@@ -26,6 +38,21 @@ struct AISettingsView: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                 Toggle("请求 JSON 模式", isOn: $provider.usesJSONMode)
+
+                Button(action: testConnection) {
+                    HStack {
+                        if isTesting { ProgressView().controlSize(.small) }
+                        Text(isTesting ? "正在连接并等待模型响应…" : "测试 API 连接")
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .disabled(isTesting)
+
+                if let connectionMessage {
+                    Label(connectionMessage, systemImage: "checkmark.circle")
+                        .font(.footnote)
+                        .foregroundStyle(OKColor.secondaryText)
+                }
             }
 
             Section("整理提示词") {
@@ -74,23 +101,33 @@ struct AISettingsView: View {
     private func loadKeyIfNeeded() {
         guard !hasLoadedKey else { return }
         hasLoadedKey = true
+        prompt = provider.effectivePrompt
         do {
             apiKey = try keyStore.read(providerID: provider.id) ?? ""
-            prompt = provider.effectivePrompt
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
+    private func testConnection() {
+        errorMessage = nil
+        connectionMessage = nil
+        isTesting = true
+        Task {
+            defer { isTesting = false }
+            do {
+                let configuration = try validatedConfiguration()
+                let result = try await OpenAICompatibleClient().testConnection(configuration: configuration)
+                connectionMessage = "连接成功 · \(result.model) · \(result.latencyMilliseconds) ms"
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+        }
+    }
+
     private func save() {
         do {
-            _ = try OpenAICompatibleClient.endpoint(baseURL: provider.baseURL)
-            guard !provider.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw OpenAICompatibleClient.ClientError.invalidModel
-            }
-            guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-                throw PresentedValidationError(message: "API Key 不能为空")
-            }
+            _ = try validatedConfiguration()
 
             let normalizedPrompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !normalizedPrompt.isEmpty else {
@@ -103,6 +140,22 @@ struct AISettingsView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func validatedConfiguration() throws -> OpenAICompatibleClient.Configuration {
+        _ = try OpenAICompatibleClient.endpoint(baseURL: provider.baseURL)
+        guard !provider.model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw OpenAICompatibleClient.ClientError.invalidModel
+        }
+        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw PresentedValidationError(message: "API Key 不能为空")
+        }
+        return .init(
+            baseURL: provider.baseURL,
+            model: provider.model,
+            apiKey: apiKey,
+            usesJSONMode: provider.usesJSONMode
+        )
     }
 }
 

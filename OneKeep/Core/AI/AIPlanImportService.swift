@@ -32,17 +32,41 @@ struct AIPlanImportService {
         provider: AIProviderConfiguration,
         apiKey: String
     ) async throws -> TrainingPlan {
-        let content = try await client.complete(
-            configuration: .init(
-                baseURL: provider.baseURL,
-                model: provider.model,
-                apiKey: apiKey,
-                usesJSONMode: provider.usesJSONMode
-            ),
-            developerMessage: provider.effectivePrompt,
-            userMessage: "请把下面内容整理成计划 JSON。不要改变用户的训练决定，只整理结构。\n\n\(sourceText)"
+        try await importPlan(
+            conversation: [AIChatMessage(role: .user, content: sourceText)],
+            provider: provider,
+            apiKey: apiKey
         )
-        return try Self.parse(content)
+    }
+
+    func importPlan(
+        conversation: [AIChatMessage],
+        provider: AIProviderConfiguration,
+        apiKey: String
+    ) async throws -> TrainingPlan {
+        let transcript = conversation.suffix(30).map { message in
+            "\(message.role == .user ? "用户" : "助手")：\(message.content)"
+        }.joined(separator: "\n\n")
+        let messages: [OpenAICompatibleClient.Message] = [
+            .init(role: "system", content: provider.effectivePrompt),
+            .init(role: "user", content: "根据以下完整对话，把用户原始计划和用户明确确认的修改整理成最终计划 JSON。助手尚未被用户确认的建议不得写入。\n\n\(transcript)")
+        ]
+        let configuration = OpenAICompatibleClient.Configuration(
+            baseURL: provider.baseURL,
+            model: provider.model,
+            apiKey: apiKey,
+            usesJSONMode: provider.usesJSONMode
+        )
+        do {
+            return try Self.parse(try await client.complete(configuration: configuration, messages: messages).content)
+        } catch OpenAICompatibleClient.ClientError.missingContent where provider.usesJSONMode {
+            // DeepSeek documents that JSON mode may occasionally return empty content.
+            return try Self.parse(try await client.complete(
+                configuration: configuration,
+                messages: messages,
+                forceJSONMode: false
+            ).content)
+        }
     }
 
     static func parse(_ content: String) throws -> TrainingPlan {
