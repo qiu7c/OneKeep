@@ -2,8 +2,13 @@ name: Build TrollStore IPA
 
 on:
   push:
+    branches: ['**']
     tags: ['v*']
   workflow_dispatch:
+
+concurrency:
+  group: trollstore-ipa-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
