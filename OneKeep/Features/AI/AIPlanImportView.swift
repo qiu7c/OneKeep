@@ -15,6 +15,18 @@ struct AIPlanImportView: View {
         }
     }
 
+    private enum FailedAction: Equatable {
+        case chat(String)
+        case generatePlan
+
+        var buttonTitle: String {
+            switch self {
+            case .chat: return "重新发送"
+            case .generatePlan: return "重新生成计划预览"
+            }
+        }
+    }
+
     @EnvironmentObject private var planLibrary: PlanLibraryStore
     @Environment(\.dismiss) private var dismiss
 
@@ -25,6 +37,8 @@ struct AIPlanImportView: View {
     @State private var errorMessage: String?
     @State private var provider = AIProviderPreferences.load()
     @State private var includesProfile = false
+    @State private var failedAction: FailedAction?
+    @FocusState private var isComposerFocused: Bool
 
     private let keyStore = KeychainAPIKeyStore()
     private let conversationService = AIConversationService()
@@ -61,8 +75,9 @@ struct AIPlanImportView: View {
                                 .font(.headline)
                             Text(errorMessage)
                                 .font(.footnote)
-                            Button("重新发送") { sendMessage() }
-                                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            if let failedAction {
+                                Button(failedAction.buttonTitle, action: retryFailedAction)
+                            }
                         }
                         .foregroundStyle(.red)
                         .okCard()
@@ -72,6 +87,7 @@ struct AIPlanImportView: View {
                 }
                 .padding(20)
             }
+            .scrollDismissesKeyboard(.interactively)
             .onChange(of: messages.count) { _ in
                 withAnimation { proxy.scrollTo(messages.last?.id, anchor: .bottom) }
             }
@@ -97,6 +113,10 @@ struct AIPlanImportView: View {
                     Image(systemName: "gearshape")
                 }
                 .accessibilityLabel("AI 服务设置")
+            }
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("收起键盘") { isComposerFocused = false }
             }
         }
         .safeAreaInset(edge: .bottom) { composer }
@@ -138,7 +158,10 @@ struct AIPlanImportView: View {
     }
 
     private func suggestion(_ text: String) -> some View {
-        Button(text) { draft = text }
+        Button(text) {
+            draft = text
+            isComposerFocused = true
+        }
             .font(.caption)
             .buttonStyle(.bordered)
             .tint(OKColor.accent)
@@ -184,6 +207,7 @@ struct AIPlanImportView: View {
             HStack(alignment: .bottom, spacing: 10) {
                 TextField("粘贴计划或继续提问", text: $draft, axis: .vertical)
                     .lineLimit(1...6)
+                    .focused($isComposerFocused)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
                     .background(OKColor.background)
@@ -216,6 +240,15 @@ struct AIPlanImportView: View {
             Text("\(plan.days.count) 个训练日 · \(plan.days.reduce(0) { $0 + $1.blocks.count }) 个阶段 · \(plan.days.reduce(0) { $0 + $1.exercises.count }) 个动作")
                 .font(.subheadline)
                 .foregroundStyle(OKColor.secondaryText)
+            if unresolvedExerciseCount(in: plan) > 0 {
+                Label("有 \(unresolvedExerciseCount(in: plan)) 个动作需要在编辑器中确认", systemImage: "questionmark.circle")
+                    .font(.footnote)
+                    .foregroundStyle(.orange)
+            } else {
+                Label("全部动作已关联动作库", systemImage: "checkmark.seal")
+                    .font(.footnote)
+                    .foregroundStyle(OKColor.secondaryText)
+            }
             NavigationLink {
                 if let binding = generatedPlanBinding { AIPlanReviewView(plan: binding) }
             } label: {
@@ -223,14 +256,22 @@ struct AIPlanImportView: View {
             }
             .frame(minHeight: 44)
             Button {
-                planLibrary.save(plan)
-                dismiss()
+                do {
+                    planLibrary.save(try importService.finalizeForSaving(plan))
+                    dismiss()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
             } label: {
                 Label("确认并填入计划", systemImage: "checkmark")
             }
             .buttonStyle(OKPrimaryButtonStyle())
         }
         .okCard()
+    }
+
+    private func unresolvedExerciseCount(in plan: TrainingPlan) -> Int {
+        plan.days.flatMap(\.exercises).filter { ExerciseLibraryCatalog.item(id: $0.libraryID) == nil }.count
     }
 
     private var generatedPlanBinding: Binding<TrainingPlan>? {
@@ -241,8 +282,10 @@ struct AIPlanImportView: View {
     private func sendMessage() {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty, requestState == .idle else { return }
+        isComposerFocused = false
         draft = ""
         errorMessage = nil
+        failedAction = nil
         generatedPlan = nil
         messages.append(AIChatMessage(role: .user, content: content))
         persistMessages()
@@ -263,13 +306,16 @@ struct AIPlanImportView: View {
             } catch {
                 errorMessage = error.localizedDescription
                 draft = content
+                failedAction = .chat(content)
             }
         }
     }
 
     private func generatePlan() {
         guard !messages.isEmpty, requestState == .idle else { return }
+        isComposerFocused = false
         errorMessage = nil
+        failedAction = nil
         requestState = .generating
         Task {
             defer { requestState = .idle }
@@ -282,7 +328,19 @@ struct AIPlanImportView: View {
                 )
             } catch {
                 errorMessage = error.localizedDescription
+                failedAction = .generatePlan
             }
+        }
+    }
+
+    private func retryFailedAction() {
+        guard requestState == .idle, let failedAction else { return }
+        switch failedAction {
+        case .chat(let content):
+            draft = content
+            sendMessage()
+        case .generatePlan:
+            generatePlan()
         }
     }
 
@@ -301,10 +359,12 @@ struct AIPlanImportView: View {
     }
 
     private func clearConversation() {
+        isComposerFocused = false
         messages = []
         draft = ""
         generatedPlan = nil
         errorMessage = nil
+        failedAction = nil
         AIConversationPreferences.clear()
     }
 }

@@ -12,6 +12,8 @@ struct CompleteBackup: Codable {
     let performedSets: [BackupPerformedSet]
     let quickLogs: [BackupQuickLog]
     let chatHistory: [AIChatMessage]?
+    let exerciseLibraryOverrides: [ExerciseLibraryItem]?
+    let workoutPreferences: WorkoutPreferences?
 }
 
 struct BackupWorkoutSession: Codable {
@@ -35,6 +37,7 @@ struct BackupPerformedSet: Codable {
     let durationSeconds: Int64?
     let plannedWeightKilograms: Double?
     let weightKilograms: Double?
+    let isSkipped: Bool?
     let completedAt: Date
 }
 
@@ -69,7 +72,7 @@ enum CompleteBackupError: LocalizedError {
 
 @MainActor
 final class CompleteBackupService {
-    static let formatVersion = 1
+    static let formatVersion = 4
 
     private let context: NSManagedObjectContext
     private let encoder: JSONEncoder
@@ -94,7 +97,9 @@ final class CompleteBackupService {
             sessions: try fetchSessions(),
             performedSets: try fetchSets(),
             quickLogs: try fetchQuickLogs(),
-            chatHistory: AIConversationPreferences.load()
+            chatHistory: AIConversationPreferences.load(),
+            exerciseLibraryOverrides: ExerciseLibraryPreferences.load(),
+            workoutPreferences: WorkoutPreferencesStore.load()
         )
         let data = try encoder.encode(backup)
         let manifest = BackupManifest(
@@ -136,6 +141,8 @@ final class CompleteBackupService {
             AIProviderPreferences.clear()
         }
         AIConversationPreferences.save(backup.chatHistory ?? [])
+        try ExerciseLibraryPreferences.save(backup.exerciseLibraryOverrides ?? [])
+        try WorkoutPreferencesStore.save(backup.workoutPreferences ?? WorkoutPreferences())
     }
 
     private func replaceLocalData(with backup: CompleteBackup) throws {
@@ -176,6 +183,7 @@ final class CompleteBackupService {
             object.setValue(item.durationSeconds, forKey: "durationSeconds")
             object.setValue(item.plannedWeightKilograms, forKey: "plannedWeightKilograms")
             object.setValue(item.weightKilograms, forKey: "weightKilograms")
+            object.setValue(item.isSkipped ?? false, forKey: "isSkipped")
         }
         for item in backup.quickLogs {
             let object = NSEntityDescription.insertNewObject(forEntityName: "QuickLogEntity", into: context)
@@ -220,6 +228,7 @@ final class CompleteBackupService {
                 durationSeconds: (object.value(forKey: "durationSeconds") as? NSNumber)?.int64Value,
                 plannedWeightKilograms: (object.value(forKey: "plannedWeightKilograms") as? NSNumber)?.doubleValue,
                 weightKilograms: (object.value(forKey: "weightKilograms") as? NSNumber)?.doubleValue,
+                isSkipped: (object.value(forKey: "isSkipped") as? NSNumber)?.boolValue ?? false,
                 completedAt: completedAt
             )
         }

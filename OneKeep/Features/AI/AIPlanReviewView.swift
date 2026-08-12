@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AIPlanReviewView: View {
     @Binding var plan: TrainingPlan
+    private let weightUnit = WeightUnit.preferred
 
     var body: some View {
         Form {
@@ -36,12 +37,13 @@ struct AIPlanReviewView: View {
 
                             ForEach($block.exercises) { $exercise in
                                 DisclosureGroup {
+                                    exerciseLibraryMatch($exercise)
                                     Picker("记录方式", selection: $exercise.trackingMode) {
                                         ForEach(PlannedExercise.TrackingMode.allCases, id: \.self) { Text($0.title).tag($0) }
                                     }
                                     Stepper("组数 \(exercise.sets)", value: $exercise.sets, in: 1...100)
                                     TextField("次数或区间", text: optionalString($exercise.repetitions))
-                                    TextField("计划重量 kg", text: optionalDouble($exercise.plannedWeightKilograms))
+                                    TextField("计划重量 \(weightUnit.symbol)", text: optionalWeight($exercise.plannedWeightKilograms))
                                         .keyboardType(.decimalPad)
                                     TextField("动作时长（秒）", text: optionalInt($exercise.durationSeconds))
                                         .keyboardType(.numberPad)
@@ -54,7 +56,10 @@ struct AIPlanReviewView: View {
                                         block.exercises.removeAll { $0.id == exercise.id }
                                     }
                                 } label: {
-                                    TextField("动作名称", text: $exercise.name)
+                                    HStack {
+                                        TextField("动作名称", text: exerciseName($exercise))
+                                        matchIcon(exercise)
+                                    }
                                 }
                             }
 
@@ -95,6 +100,67 @@ struct AIPlanReviewView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    @ViewBuilder
+    private func exerciseLibraryMatch(_ exercise: Binding<PlannedExercise>) -> some View {
+        if let item = ExerciseLibraryCatalog.item(id: exercise.wrappedValue.libraryID) {
+            Label(
+                exercise.wrappedValue.libraryMatchConfidence.map { $0 < 0.999 ? "已智能匹配：\(item.name)（\(Int($0 * 100))%）" : "已匹配：\(item.name)" } ?? "已匹配：\(item.name)",
+                systemImage: "checkmark.seal"
+            )
+            .font(.footnote)
+            .foregroundStyle(OKColor.secondaryText)
+        } else {
+            Label("尚未关联动作库，保存计划时会创建自定义动作", systemImage: "questionmark.circle")
+                .font(.footnote)
+                .foregroundStyle(.orange)
+            let candidates = (exercise.wrappedValue.libraryMatchCandidates ?? []).compactMap { ExerciseLibraryCatalog.item(id: $0) }
+            if !candidates.isEmpty {
+                Menu("选择识别候选") {
+                    ForEach(candidates) { item in
+                        Button(item.name) { select(item, for: exercise) }
+                    }
+                }
+            }
+        }
+        NavigationLink {
+            ExerciseLibraryView { item in select(item, for: exercise) }
+        } label: {
+            Label("从完整动作库选择", systemImage: "books.vertical")
+        }
+    }
+
+    @ViewBuilder
+    private func matchIcon(_ exercise: PlannedExercise) -> some View {
+        if ExerciseLibraryCatalog.item(id: exercise.libraryID) != nil {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(OKColor.secondaryText)
+        } else {
+            Image(systemName: "questionmark.circle.fill").foregroundStyle(.orange)
+        }
+    }
+
+    private func exerciseName(_ exercise: Binding<PlannedExercise>) -> Binding<String> {
+        Binding(
+            get: { exercise.wrappedValue.name },
+            set: { value in
+                exercise.wrappedValue.name = value
+                let recognition = ExerciseLibraryCatalog.recognize(name: value)
+                exercise.wrappedValue.libraryID = recognition.item?.id
+                exercise.wrappedValue.libraryMatchCandidates = recognition.candidates.map(\.id)
+                exercise.wrappedValue.libraryMatchConfidence = recognition.confidence
+            }
+        )
+    }
+
+    private func select(_ item: ExerciseLibraryItem, for exercise: Binding<PlannedExercise>) {
+        exercise.wrappedValue.name = item.name
+        exercise.wrappedValue.libraryID = item.id
+        exercise.wrappedValue.libraryMatchCandidates = [item.id]
+        exercise.wrappedValue.libraryMatchConfidence = 1
+        exercise.wrappedValue.trackingMode = item.defaultTrackingMode
+        if exercise.wrappedValue.durationSeconds == nil { exercise.wrappedValue.durationSeconds = item.defaultDurationSeconds }
+        if exercise.wrappedValue.restSeconds == 0 { exercise.wrappedValue.restSeconds = item.defaultRestSeconds }
+    }
+
     private var hasEndDate: Binding<Bool> {
         Binding(
             get: { plan.endDate != nil },
@@ -123,6 +189,13 @@ struct AIPlanReviewView: View {
         Binding(
             get: { value.wrappedValue.map { String($0) } ?? "" },
             set: { value.wrappedValue = $0.isEmpty ? nil : Double($0) }
+        )
+    }
+
+    private func optionalWeight(_ value: Binding<Double?>) -> Binding<String> {
+        Binding(
+            get: { value.wrappedValue.map(weightUnit.string(fromKilograms:)) ?? "" },
+            set: { value.wrappedValue = $0.isEmpty ? nil : weightUnit.parseKilograms($0) }
         )
     }
 

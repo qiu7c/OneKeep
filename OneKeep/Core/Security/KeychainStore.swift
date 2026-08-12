@@ -5,6 +5,7 @@ protocol APIKeyStore {
     func read(providerID: UUID) throws -> String?
     func save(_ value: String, providerID: UUID) throws
     func delete(providerID: UUID) throws
+    func deleteAll() throws
 }
 
 enum KeychainStoreError: LocalizedError {
@@ -67,6 +68,17 @@ struct KeychainAPIKeyStore: APIKeyStore {
 
     func delete(providerID: UUID) throws {
         let status = SecItemDelete(baseQuery(providerID: providerID) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainStoreError.unexpectedStatus(status)
+        }
+    }
+
+    func deleteAll() throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service
+        ]
+        let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainStoreError.unexpectedStatus(status)
         }

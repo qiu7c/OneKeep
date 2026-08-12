@@ -60,4 +60,29 @@ final class WorkoutTimerStoreTests: XCTestCase {
 
         XCTAssertEqual(timer.elapsedSeconds, 15)
     }
+
+    func testSnapshotRestoresRunningCountdownUsingWallClock() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let original = WorkoutTimerStore()
+        original.start(seconds: 60, now: start)
+
+        let restored = WorkoutTimerStore()
+        restored.restore(original.snapshot(), now: start.addingTimeInterval(25.2))
+
+        XCTAssertEqual(restored.remainingSeconds, 35)
+        XCTAssertEqual(restored.phase, .running)
+    }
+
+    func testSnapshotRestoresPausedCountdownWithoutConsumingTime() {
+        let start = Date(timeIntervalSince1970: 1_000)
+        let original = WorkoutTimerStore()
+        original.start(seconds: 60, now: start)
+        original.pause(now: start.addingTimeInterval(20))
+
+        let restored = WorkoutTimerStore()
+        restored.restore(original.snapshot(), now: start.addingTimeInterval(500))
+
+        XCTAssertEqual(restored.remainingSeconds, 40)
+        XCTAssertEqual(restored.phase, .paused)
+    }
 }

@@ -21,14 +21,25 @@ final class VideoSourceTests: XCTestCase {
         XCTAssertTrue(url.path.contains("abc123"))
     }
 
-    func testBilibiliURLBecomesEmbedURL() throws {
+    func testBilibiliURLBecomesMobilePlaybackURL() throws {
         let source = try XCTUnwrap(VideoSource(urlString: "https://www.bilibili.com/video/BV1Example"))
 
         guard case .web(let url) = source else {
             return XCTFail("Expected web video source")
         }
-        XCTAssertEqual(url.host, "player.bilibili.com")
+        XCTAssertEqual(url.host, "m.bilibili.com")
         XCTAssertTrue(url.absoluteString.contains("BV1Example"))
+    }
+
+    func testBilibiliMultiPartURLKeepsSelectedPage() throws {
+        let source = try XCTUnwrap(VideoSource(urlString: "https://www.bilibili.com/video/BV1Rb411a7cQ/?p=2"))
+        guard case .web(let url) = source else { return XCTFail("Expected web video") }
+        XCTAssertEqual(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "p" }?.value, "2")
+    }
+
+    func testRecognizesBilibiliShortLinkAsBilibiliSource() throws {
+        let source = try XCTUnwrap(VideoSource(urlString: "https://b23.tv/example"))
+        XCTAssertTrue(VideoSource.isBilibiliURL(source.playbackURL))
     }
 
     func testRejectsNonHTTPURL() {

@@ -3,6 +3,16 @@ import Foundation
 
 @MainActor
 final class WorkoutTimerStore: ObservableObject {
+    struct Snapshot: Codable {
+        let mode: String
+        let phase: String
+        let remainingSeconds: Int
+        let elapsedSeconds: Int
+        let endDate: Date?
+        let pausedSeconds: Int
+        let stopwatchStartDate: Date?
+        let accumulatedElapsedSeconds: Int
+    }
     enum Mode: Equatable {
         case countdown
         case stopwatch
@@ -120,6 +130,49 @@ final class WorkoutTimerStore: ObservableObject {
         elapsedSeconds = 0
         mode = .countdown
         phase = .idle
+    }
+
+    func snapshot() -> Snapshot {
+        Snapshot(
+            mode: mode == .countdown ? "countdown" : "stopwatch",
+            phase: phaseName,
+            remainingSeconds: remainingSeconds,
+            elapsedSeconds: elapsedSeconds,
+            endDate: endDate,
+            pausedSeconds: pausedSeconds,
+            stopwatchStartDate: stopwatchStartDate,
+            accumulatedElapsedSeconds: accumulatedElapsedSeconds
+        )
+    }
+
+    func restore(_ snapshot: Snapshot, now: Date = .now) {
+        mode = snapshot.mode == "stopwatch" ? .stopwatch : .countdown
+        phase = restoredPhase(from: snapshot.phase)
+        remainingSeconds = max(0, snapshot.remainingSeconds)
+        elapsedSeconds = max(0, snapshot.elapsedSeconds)
+        endDate = snapshot.endDate
+        pausedSeconds = max(0, snapshot.pausedSeconds)
+        stopwatchStartDate = snapshot.stopwatchStartDate
+        accumulatedElapsedSeconds = max(0, snapshot.accumulatedElapsedSeconds)
+        update(now: now)
+    }
+
+    private var phaseName: String {
+        switch phase {
+        case .idle: return "idle"
+        case .running: return "running"
+        case .paused: return "paused"
+        case .finished: return "finished"
+        }
+    }
+
+    private func restoredPhase(from value: String) -> Phase {
+        switch value {
+        case "running": return .running
+        case "paused": return .paused
+        case "finished": return .finished
+        default: return .idle
+        }
     }
 
     func update(now: Date) {
