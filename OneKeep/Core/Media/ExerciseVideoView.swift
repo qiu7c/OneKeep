@@ -36,10 +36,11 @@ private struct WebVideoPlayer: View {
             if isLoading {
                 VStack(spacing: 8) {
                     ProgressView()
-                    Text("正在加载视频…")
+                    Text("正在加载移动播放页…")
                         .font(.caption)
                         .foregroundStyle(OKColor.secondaryText)
                 }
+                .allowsHitTesting(false)
             }
             if let errorMessage {
                 VStack(spacing: 10) {
@@ -92,23 +93,44 @@ private struct EmbeddedWebVideo: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.allowsInlineMediaPlayback = true
-        configuration.mediaTypesRequiringUserActionForPlayback = []
-        configuration.websiteDataStore = .nonPersistent()
+        configuration.mediaTypesRequiringUserActionForPlayback = .all
+        configuration.websiteDataStore = .default()
+        configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.defaultWebpagePreferences.preferredContentMode = .mobile
 
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.navigationDelegate = context.coordinator
-        view.scrollView.isScrollEnabled = false
+        view.scrollView.isScrollEnabled = isBilibili(url)
+        view.scrollView.contentInsetAdjustmentBehavior = .never
         view.isOpaque = false
         view.backgroundColor = .clear
-        view.load(URLRequest(url: url))
+        view.customUserAgent = Self.mobileSafariUserAgent
+        view.load(request(for: url))
         return view
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         context.coordinator.parent = self
         guard webView.url != url else { return }
-        webView.load(URLRequest(url: url))
+        webView.scrollView.isScrollEnabled = isBilibili(url)
+        webView.load(request(for: url))
     }
+
+    private func request(for url: URL) -> URLRequest {
+        var request = URLRequest(url: url, cachePolicy: .reloadRevalidatingCacheData, timeoutInterval: 30)
+        request.setValue("zh-CN,zh;q=0.9,en;q=0.7", forHTTPHeaderField: "Accept-Language")
+        if isBilibili(url) {
+            request.setValue("https://www.bilibili.com/", forHTTPHeaderField: "Referer")
+        }
+        return request
+    }
+
+    private func isBilibili(_ url: URL) -> Bool {
+        url.host?.lowercased().hasSuffix("bilibili.com") == true
+    }
+
+    private static let mobileSafariUserAgent =
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
 
     final class Coordinator: NSObject, WKNavigationDelegate {
         var parent: EmbeddedWebVideo

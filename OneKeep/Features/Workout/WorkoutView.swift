@@ -231,17 +231,21 @@ struct WorkoutView: View {
                     id: step.exercise.libraryID,
                     fallbackName: step.exercise.name
                 ) {
-                    Divider()
-                    Label("动作指导", systemImage: "list.number")
-                        .font(.subheadline.weight(.semibold))
-                    ForEach(Array(libraryItem.instructions.prefix(4).enumerated()), id: \.offset) { index, instruction in
-                        HStack(alignment: .top, spacing: 8) {
-                            Text("\(index + 1)")
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(OKColor.secondaryText)
-                            Text(instruction).font(.subheadline)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("动作指导", systemImage: "list.number")
+                            .font(.subheadline.weight(.semibold))
+                        ForEach(Array(libraryItem.instructions.prefix(4).enumerated()), id: \.offset) { index, instruction in
+                            HStack(alignment: .top, spacing: 8) {
+                                Text("\(index + 1)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(OKColor.secondaryText)
+                                Text(instruction).font(.subheadline)
+                            }
                         }
                     }
+                    .padding(12)
+                    .background(OKColor.background)
+                    .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
                 }
             } else {
                 Text("没有可执行动作")

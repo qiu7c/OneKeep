@@ -117,7 +117,6 @@ struct PlansView: View {
             }
 
             if let day = plan.days.first {
-                Divider()
                 HStack {
                     Image(systemName: "calendar.day.timeline.left")
                         .frame(width: 28)
@@ -127,6 +126,9 @@ struct PlansView: View {
                         .foregroundStyle(OKColor.secondaryText)
                 }
                 .font(.subheadline)
+                .padding(12)
+                .background(OKColor.background)
+                .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
             }
 
             NavigationLink {
@@ -159,7 +161,6 @@ struct PlansView: View {
                 )
             }
             .buttonStyle(.plain)
-            Divider().padding(.leading, 42)
             NavigationLink {
                 ExerciseLibraryView()
             } label: {
@@ -202,6 +203,9 @@ struct PlansView: View {
                 .foregroundStyle(OKColor.secondaryText)
         }
         .contentShape(Rectangle())
+        .padding(10)
+        .background(OKColor.background)
+        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
     }
 
     private func planSummary(_ plan: TrainingPlan) -> String {

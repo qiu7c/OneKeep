@@ -39,4 +39,18 @@ final class OpenAICompatibleClientTests: XCTestCase {
             XCTAssertFalse(configuration.model.isEmpty)
         }
     }
+
+    func testJoinsContinuationWithoutDuplicatingOverlap() {
+        XCTAssertEqual(
+            OpenAICompatibleClient.join(prefix: "{\"days\":[{\"title\":\"周一", continuation: "周一\",\"blocks\":[]}]}"),
+            "{\"days\":[{\"title\":\"周一\",\"blocks\":[]}]}"
+        )
+    }
+
+    func testJoinsContinuationAfterRemovingMarkdownFence() {
+        XCTAssertEqual(
+            OpenAICompatibleClient.join(prefix: "{\"title\":", continuation: "```json\n\"计划\"}\n```"),
+            "{\"title\":\"计划\"}"
+        )
+    }
 }

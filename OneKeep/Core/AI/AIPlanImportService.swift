@@ -49,6 +49,7 @@ struct AIPlanImportService {
         }.joined(separator: "\n\n")
         let messages: [OpenAICompatibleClient.Message] = [
             .init(role: "system", content: provider.effectivePrompt),
+            .init(role: "system", content: AIRequestContext.currentDateMessage()),
             .init(role: "user", content: "根据以下完整对话，把用户原始计划和用户明确确认的修改整理成最终计划 JSON。助手尚未被用户确认的建议不得写入。\n\n\(transcript)")
         ]
         let configuration = OpenAICompatibleClient.Configuration(
@@ -59,10 +60,10 @@ struct AIPlanImportService {
         )
         let content: String
         do {
-            content = try await client.complete(configuration: configuration, messages: messages).content
+            content = try await client.completeContinuing(configuration: configuration, messages: messages).content
         } catch OpenAICompatibleClient.ClientError.missingContent where provider.usesJSONMode {
             // DeepSeek documents that JSON mode may occasionally return empty content.
-            content = try await client.complete(
+            content = try await client.completeContinuing(
                 configuration: configuration, messages: messages, forceJSONMode: false
             ).content
         }
@@ -73,7 +74,7 @@ struct AIPlanImportService {
                 .init(role: "assistant", content: content),
                 .init(role: "user", content: "上一个 JSON 无法被应用解析。请只修复格式和缺失字段，不改变计划内容；严格返回一个符合系统结构的 JSON 对象。")
             ]
-            let repaired = try await client.complete(
+            let repaired = try await client.completeContinuing(
                 configuration: configuration, messages: repairMessages, forceJSONMode: provider.usesJSONMode
             ).content
             return try linkToExerciseLibrary(Self.parse(repaired))
@@ -176,7 +177,7 @@ struct AIPlanImportService {
     保留用户写出的动作要点、左右侧、次数区间、重量、动作时长、组间休息、动作间休息和轮间休息。
     识别热身、普通训练、间歇、循环和拉伸阶段。相同动作出现在不同阶段时不要合并。
     动作必须优先从随后提供的完整动作库 JSON 索引中选择，同时返回规范名称和 libraryID。无法确定唯一动作时保留用户原名并将 libraryID 设为 null。
-    只返回一个 JSON 对象，不要返回 Markdown。字段必须符合以下结构：
+    只返回一个单行紧凑 JSON 对象，不要返回 Markdown、解释、空白缩进或重复字段。字段必须符合以下结构：
     {
       "title": "计划名称",
       "startDate": "yyyy-MM-dd",

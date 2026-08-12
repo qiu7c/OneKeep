@@ -170,28 +170,25 @@ struct RecordsView: View {
     }
 
     private var settingsCard: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 10) {
             NavigationLink {
                 WorkoutSettingsView()
             } label: {
                 settingsLabel(title: "训练设置", detail: "重量单位、计时通知、振动与自动休息", icon: "timer")
             }
             .buttonStyle(.plain)
-            Divider().padding(.leading, 42)
             NavigationLink {
                 VideoMediaSettingsView()
             } label: {
                 settingsLabel(title: "视频与缓存", detail: "链接检测、备用源与离线缓存", icon: "play.rectangle")
             }
             .buttonStyle(.plain)
-            Divider().padding(.leading, 42)
             NavigationLink {
                 AISettingsView()
             } label: {
                 settingsLabel(title: "AI 模型配置", detail: "切换服务、获取模型并测试连接", icon: "slider.horizontal.3")
             }
             .buttonStyle(.plain)
-            Divider().padding(.leading, 42)
             NavigationLink {
                 BackupView()
             } label: {
@@ -213,7 +210,9 @@ struct RecordsView: View {
             Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(OKColor.secondaryText)
         }
         .contentShape(Rectangle())
-        .padding(.vertical, 4)
+        .padding(10)
+        .background(OKColor.background)
+        .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
     }
 
     private var completedSessions: [NSManagedObject] {

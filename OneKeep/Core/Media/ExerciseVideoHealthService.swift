@@ -126,7 +126,7 @@ actor ExerciseVideoHealthService {
                 let (_, playerResponse) = try await URLSession.shared.data(for: playerRequest)
                 guard let playerHTTP = playerResponse as? HTTPURLResponse,
                       (200...399).contains(playerHTTP.statusCode) else {
-                    return unavailable(url, "内嵌播放器当前不可访问")
+                    return unavailable(url, "移动播放页当前不可访问")
                 }
             }
             return ExerciseVideoHealthRecord(

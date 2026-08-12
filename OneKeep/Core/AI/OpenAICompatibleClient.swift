@@ -53,7 +53,7 @@ struct OpenAICompatibleClient {
             case .network(let message): return "网络连接失败：\(message)"
             case .requestFailed(let status, let message): return "AI 请求失败（HTTP \(status)）：\(message)"
             case .missingContent: return "AI 返回了空内容。DeepSeek 的 JSON 模式偶尔会出现此问题"
-            case .truncated: return "AI 输出达到长度限制，计划 JSON 不完整"
+            case .truncated: return "AI 多次自动续写后仍未完成，请缩短对话或更换支持更长输出的模型"
             }
         }
     }
@@ -110,11 +110,68 @@ struct OpenAICompatibleClient {
             throw ClientError.invalidResponse
         }
         guard let choice = completion.choices.first else { throw ClientError.missingContent }
-        if choice.finishReason == "length" { throw ClientError.truncated }
         guard let content = choice.message.content?.trimmingCharacters(in: .whitespacesAndNewlines), !content.isEmpty else {
             throw ClientError.missingContent
         }
         return CompletionResult(content: content, model: completion.model, finishReason: choice.finishReason)
+    }
+
+    func completeContinuing(
+        configuration: Configuration,
+        messages: [Message],
+        forceJSONMode: Bool? = nil,
+        timeout: TimeInterval = 90,
+        maximumContinuations: Int = 4
+    ) async throws -> CompletionResult {
+        var result = try await complete(
+            configuration: configuration,
+            messages: messages,
+            forceJSONMode: forceJSONMode,
+            timeout: timeout
+        )
+        guard result.finishReason == "length" else { return result }
+
+        var combined = result.content
+        var latestModel = result.model
+        for _ in 0..<maximumContinuations {
+            let continuationMessages = messages + [
+                .init(role: "assistant", content: combined),
+                .init(
+                    role: "user",
+                    content: "上一条输出被服务截断。请从最后一个字符之后精确续写，只输出缺失的后半部分；不要重头开始，不要解释，不要添加 Markdown 代码块。"
+                )
+            ]
+            result = try await complete(
+                configuration: configuration,
+                messages: continuationMessages,
+                forceJSONMode: false,
+                timeout: timeout
+            )
+            combined = Self.join(prefix: combined, continuation: result.content)
+            latestModel = result.model ?? latestModel
+            if result.finishReason != "length" {
+                return CompletionResult(content: combined, model: latestModel, finishReason: result.finishReason)
+            }
+        }
+        throw ClientError.truncated
+    }
+
+    static func join(prefix: String, continuation: String) -> String {
+        var suffix = continuation.trimmingCharacters(in: .whitespacesAndNewlines)
+        if suffix.hasPrefix("```json") { suffix.removeFirst(7) }
+        else if suffix.hasPrefix("```") { suffix.removeFirst(3) }
+        if suffix.hasSuffix("```") { suffix.removeLast(3) }
+        suffix = suffix.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let maximumOverlap = min(1_024, min(prefix.count, suffix.count))
+        if maximumOverlap > 0 {
+            for length in stride(from: maximumOverlap, through: 1, by: -1) {
+                if prefix.suffix(length) == suffix.prefix(length) {
+                    return prefix + String(suffix.dropFirst(length))
+                }
+            }
+        }
+        return prefix + suffix
     }
 
     func complete(

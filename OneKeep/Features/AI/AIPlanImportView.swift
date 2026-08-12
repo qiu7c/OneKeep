@@ -25,6 +25,7 @@ struct AIPlanImportView: View {
     @State private var errorMessage: String?
     @State private var provider = AIProviderPreferences.load()
     @State private var includesProfile = false
+    @FocusState private var isComposerFocused: Bool
 
     private let keyStore = KeychainAPIKeyStore()
     private let conversationService = AIConversationService()
@@ -72,6 +73,7 @@ struct AIPlanImportView: View {
                 }
                 .padding(20)
             }
+            .scrollDismissesKeyboard(.interactively)
             .onChange(of: messages.count) { _ in
                 withAnimation { proxy.scrollTo(messages.last?.id, anchor: .bottom) }
             }
@@ -97,6 +99,10 @@ struct AIPlanImportView: View {
                     Image(systemName: "gearshape")
                 }
                 .accessibilityLabel("AI 服务设置")
+            }
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("收起键盘") { isComposerFocused = false }
             }
         }
         .safeAreaInset(edge: .bottom) { composer }
@@ -138,7 +144,10 @@ struct AIPlanImportView: View {
     }
 
     private func suggestion(_ text: String) -> some View {
-        Button(text) { draft = text }
+        Button(text) {
+            draft = text
+            isComposerFocused = true
+        }
             .font(.caption)
             .buttonStyle(.bordered)
             .tint(OKColor.accent)
@@ -184,6 +193,7 @@ struct AIPlanImportView: View {
             HStack(alignment: .bottom, spacing: 10) {
                 TextField("粘贴计划或继续提问", text: $draft, axis: .vertical)
                     .lineLimit(1...6)
+                    .focused($isComposerFocused)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 11)
                     .background(OKColor.background)
@@ -258,6 +268,7 @@ struct AIPlanImportView: View {
     private func sendMessage() {
         let content = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !content.isEmpty, requestState == .idle else { return }
+        isComposerFocused = false
         draft = ""
         errorMessage = nil
         generatedPlan = nil
@@ -286,6 +297,7 @@ struct AIPlanImportView: View {
 
     private func generatePlan() {
         guard !messages.isEmpty, requestState == .idle else { return }
+        isComposerFocused = false
         errorMessage = nil
         requestState = .generating
         Task {
@@ -318,6 +330,7 @@ struct AIPlanImportView: View {
     }
 
     private func clearConversation() {
+        isComposerFocused = false
         messages = []
         draft = ""
         generatedPlan = nil

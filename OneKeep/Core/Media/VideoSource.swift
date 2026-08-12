@@ -32,7 +32,7 @@ enum VideoSource: Equatable {
             return
         }
 
-        if let embedURL = Self.youtubeEmbedURL(from: url) ?? Self.bilibiliEmbedURL(from: url) {
+        if let embedURL = Self.youtubeEmbedURL(from: url) ?? Self.bilibiliMobileURL(from: url) {
             self = .web(embedURL)
             return
         }
@@ -69,9 +69,16 @@ enum VideoSource: Equatable {
         return url.pathComponents.first(where: { $0.uppercased().hasPrefix("BV") })
     }
 
-    private static func bilibiliEmbedURL(from url: URL) -> URL? {
+    private static func bilibiliMobileURL(from url: URL) -> URL? {
         guard let bvid = bilibiliVideoID(from: url) else { return nil }
         let page = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "p" }?.value
-        return URL(string: "https://player.bilibili.com/player.html?bvid=\(bvid)&page=\(page ?? "1")&high_quality=1&danmaku=0&autoplay=0")
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "m.bilibili.com"
+        components.path = "/video/\(bvid)"
+        if let page, page != "1" {
+            components.queryItems = [URLQueryItem(name: "p", value: page)]
+        }
+        return components.url
     }
 }
